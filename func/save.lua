@@ -7,6 +7,7 @@ local Save = {}
 
 local KEY = "map_editor_patches"
 local ENC_KEY = "map_editor_encounter_patches"
+local CONN_KEY = "map_editor_connection_patches"
 local tablesEqual = Common.tablesEqual
 
 -- Builds a minimal patch containing only the fields that differ between
@@ -117,20 +118,52 @@ function Save.getEncounterPatches(mod)
   return mod.save:get(ENC_KEY, {})
 end
 
--- Removes the encounter patch for the given mapId.
+-- Removes the encounter patch for the given mapId from the mod save data.
 function Save.removeEncounterPatch(mod, mapId)
   local patches = Save.getEncounterPatches(mod)
   patches[mapId] = nil
   mod.save:set(ENC_KEY, patches)
 end
 
--- Applies encounter patches to data.encounters.
+-- Saves a connection patch for the given mapId.
+function Save.saveConnectionPatch(mod, mapId, data)
+  local patches = Save.getConnectionPatches(mod)
+  patches[mapId] = data
+  mod.save:set(CONN_KEY, patches)
+end
+
+-- Returns all saved connection patches from the mod save data.
+function Save.getConnectionPatches(mod)
+  return mod.save:get(CONN_KEY, {})
+end
+
+-- Removes the connection patch for the given mapId from the mod save data.
+function Save.removeConnectionPatch(mod, mapId)
+  local patches = Save.getConnectionPatches(mod)
+  patches[mapId] = nil
+  mod.save:set(CONN_KEY, patches)
+end
+
+-- Applies connection patches to data.connections.
 function Save.applyEncounterPatches(patches, data)
   if not patches then return 0 end
   local applied = 0
   for mapId, encData in pairs(patches) do
     if data.encounters then
       data.encounters[mapId] = encData
+      applied = applied + 1
+    end
+  end
+  return applied
+end
+
+-- Applies connection patches to data.connections.
+function Save.applyConnectionPatches(patches, data)
+  if not patches then return 0 end
+  local applied = 0
+  for mapId, connData in pairs(patches) do
+    if data.connections then
+      data.connections[mapId] = connData
       applied = applied + 1
     end
   end

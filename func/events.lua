@@ -259,6 +259,13 @@ function Events.onKeyPressed(self, key)
   elseif key == "5" then
     self.mode = MODES.ENCOUNTERS
     require("mods.map_editor.scene.encounter_editor").edit(self)
+  elseif key == "6" then
+    local ent = EntityEditor.selectedEntity(self)
+    if ent and ent.kind == "connection" then
+      require("mods.map_editor.scene.connection_editor").edit(self, ent)
+    else
+      self.mode = MODES.CONNECTIONS
+    end
   elseif key == "return" or key == "space" then
     if self.mode == MODES.BLOCKS then self:paintBlock()
     elseif self.mode == MODES.ENCOUNTERS then

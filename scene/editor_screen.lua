@@ -113,6 +113,7 @@ function EditorScreen:enter()
       end
     end
   end
+  if self.def.connections then self.def.connections = Save.applyConnectionPatches({ [self.mapId] = self.def.connections }, self.data) end
   -- Inject custom text defs into game data so they resolve correctly
   if self.def.textDefs and self.data then
     for _, td in ipairs(self.def.textDefs) do
@@ -134,10 +135,10 @@ function EditorScreen:enter()
   self:hookMouse()
 end
 
--- Called when the screen is exited: unhooks mouse events.
-function EditorScreen:exit()
-  self:unhookMouse()
-end
+  -- Called when the screen is exited: unhooks mouse events.
+  function EditorScreen:exit()
+    self:unhookMouse()
+  end
 
 -- Builds a patch of only the changed fields and saves it via the Save
 -- module.  Reloads the map to reflect the persisted state.
@@ -238,7 +239,7 @@ function EditorScreen:draw()
   love.graphics.setScissor(0, 8, mapViewW, 136)
   Drawing.drawGrid(self)
 
-  if self.mode >= MODES.WARPS and self.mode <= MODES.SIGNS then
+  if self.mode >= MODES.WARPS and self.mode <= MODES.CONNECTIONS then
     Drawing.drawEntityMarkers(self)
   end
   Drawing.drawCursor(self)
@@ -275,6 +276,10 @@ function EditorScreen:draw()
   -- Coordinates at bottom-left
   love.graphics.setColor(0.6, 0.6, 0.6, 1)
   self.font.draw(("%d,%d"):format(self.cursorBx, self.cursorBy), 0, 136)
+  if self.mapChanged then
+    love.graphics.setColor(1, 0.8, 0.2, 1)
+    self.font.draw("!", 50, 136)
+  end
   love.graphics.setColor(1, 1, 1, 1)
 
   if self._newMapState and self._newMapState.editField then self:drawNewMapDialog() end

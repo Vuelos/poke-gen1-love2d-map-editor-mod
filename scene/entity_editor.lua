@@ -1,17 +1,29 @@
-local MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4 }
+local MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5, CONNECTIONS = 6 }
 
 local EntityEditor = {}
 
 local function resolveText(data, mapId, textConst)
   if not data or not data.text_pointers or not data.text then return textConst end
+
   local pointers = data.text_pointers[mapId]
   if not pointers then return textConst end
+
   local entry = pointers[textConst]
   if not entry then return textConst end
-  local resolved = data.text[entry.text]
+
+  local resolved = nil
+  if entry.text then
+    resolved = data.text[entry.text]
+  end
+
+  if not resolved and entry.label then
+    resolved = data.text["_" .. entry.label]
+  end
+
   if type(resolved) == "string" then
     return resolved:gsub("[\n\f\v\r]", " "):gsub("%s+", " "):sub(1, 30)
   end
+
   return textConst
 end
 
@@ -82,7 +94,6 @@ function EntityEditor.buildItems(screen, kind, ent)
     table.insert(items, { label = ("Range: %s"):format(ent.range or "NONE"), value = "range" })
     local textContent = resolveText(screen.data, screen.mapId, ent.text)
     table.insert(items, { label = ("Text: %s"):format(textContent), value = "text" })
-    table.insert(items, { label = ("Sprite: %s"):format(ent.sprite or "?"), value = "sprite" })
     table.insert(items, { label = "DELETE", value = "delete" })
     return items
   elseif kind == "sign" then
@@ -160,20 +171,43 @@ end
 function EntityEditor.editField(screen, kind, ent, field)
   if field == "move" then
     EntityEditor.startMoving(screen, kind, ent)
-  elseif field == "destWarp" then
-    local box = screen.mod.ui.ListMenu.new(screen.game, "Edit DESTWARP", {
-      { label = "DESTWARP +1", value = "inc" },
-      { label = "DESTWARP -1", value = "dec" },
-    }, { onChoose = function(c)
-        if screen.undo then screen.undo:capture(screen.def) end
-        if c.value == "inc" then ent.destWarp = ent.destWarp + 1
-        elseif c.value == "dec" then ent.destWarp = math.max(0, ent.destWarp - 1) end
-        screen.mapChanged = true
-        screen.game.stack:pop()
-        EntityEditor.refreshMenuItems(screen, kind, ent)
-      end,
-    })
-    screen.game.stack:push(box)
+ elseif field == "destWarp" then
+  local items = {}
+
+  local destMap = screen.game.data.maps and screen.game.data.maps[ent.destMap]
+
+  if destMap and destMap.warps then
+    for i, warp in ipairs(destMap.warps) do
+      local label = warp.label or ("Warp " .. (i - 1))
+
+      table.insert(items, {
+        label = string.format(
+          "%d: %s (%d, %d)",
+          i - 1,
+          label,
+          warp.x,
+          warp.y
+        ),
+        value = i - 1, -- 0-based
+      })
+    end
+  end
+
+  local box = screen.mod.ui.ListMenu.new(screen.game, "Select Destination Warp", items, {
+    onChoose = function(c)
+      if screen.undo then
+        screen.undo:capture(screen.def)
+      end
+
+      ent.destWarp = c.value
+      screen.mapChanged = true
+
+      screen.game.stack:pop()
+      EntityEditor.refreshMenuItems(screen, kind, ent)
+    end,
+  })
+
+  screen.game.stack:push(box)
   elseif field == "movement" then
     local box = screen.mod.ui.ListMenu.new(screen.game, "Movement", {
       { label = "STAY", value = "STAY" }, { label = "WALK", value = "WALK" },
@@ -252,31 +286,35 @@ function EntityEditor.editField(screen, kind, ent, field)
       end,
     })
     screen.game.stack:push(box)
-  elseif field == "sprite" then
-    local SpriteChooser = require("mods.map_editor.scene.sprite_chooser")
-    SpriteChooser.new(screen.game, {
-      initial = ent.sprite or "",
-      onDone = function(sel)
-        if sel then
-          if screen.undo then screen.undo:capture(screen.def) end
-          ent.sprite = sel; screen.mapChanged = true
-        end
-      end,
-    })
   elseif field == "dest" then
-    local TextInput = require("mods.map_editor.scene.text_input")
-    local dialog = TextInput.new(screen.game, {
-      title = "Dest map ID",
-      maxLen = 24,
-      initial = ent.destMap or "",
-      onDone = function(text)
-        if text then
-          if screen.undo then screen.undo:capture(screen.def) end
-          ent.destMap = text; screen.mapChanged = true
+    local items = {}
+
+    for mapId, map in pairs(screen.game.data.maps or {}) do
+      table.insert(items, {
+        label = string.format("%s - %s", mapId, map.name or map.label or mapId),
+        value = mapId,
+      })
+    end
+
+    table.sort(items, function(a, b)
+      return a.label < b.label
+    end)
+
+    local box = screen.mod.ui.ListMenu.new(screen.game, "Select Destination Map", items, {
+      onChoose = function(c)
+        if screen.undo then
+          screen.undo:capture(screen.def)
         end
+
+        ent.destMap = c.value
+        screen.mapChanged = true
+
+        screen.game.stack:pop()
+        EntityEditor.refreshMenuItems(screen, kind, ent)
       end,
     })
-    screen.game.stack:push(dialog)
+
+  screen.game.stack:push(box)
   elseif field == "text" then
     local TextChooser = require("mods.map_editor.scene.text_chooser")
     TextChooser.new(screen.game, screen.def, {
@@ -304,7 +342,7 @@ end
 function EntityEditor.showObjectTypePicker(screen)
   local items = {
     { label = "NPC", value = "npc" },
-    { label = "Item Ball", value = "item" },
+    { label = "Item", value = "item" },
     { label = "Trainer", value = "trainer" },
   }
   local menu = screen.mod.ui.ListMenu.new(screen.game, "Create object type", items, {

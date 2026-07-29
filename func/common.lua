@@ -2,7 +2,7 @@
 
 local Common = {}
 
-Common.MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5 }
+Common.MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5, CONNECTIONS = 6 }
 Common.CELL_PX = 16
 Common.BLOCK_PX = 32
 Common.PAL_BLOCK_SIZE = 32

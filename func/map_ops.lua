@@ -32,7 +32,6 @@ function MapOps.expandMap(self, needL, needR, needT, needB)
       end
     end
   end
-  //TODO: ADJUST Map connections
 
   local cellShiftX = needL * 2
   local cellShiftY = needT * 2
@@ -46,18 +45,20 @@ function MapOps.expandMap(self, needL, needR, needT, needB)
     for _, s in ipairs(self.def.signs or {}) do
       s.x = s.x + cellShiftX; s.y = s.y + cellShiftY
     end
+      
     local c = self.def.connections or {}
-    if c.north then
-      c.north.offset = c.north.offset + cellShiftX
-    end
-    if c.south then
-      c.south.offset = c.south.offset + cellShiftX
-    end
-    if c.west then
-      c.west.offset = c.west.offset + cellShiftY
-    end
-    if c.east then
-      c.east.offset = c.east.offset + cellShiftY
+    local connectionShifts = {
+      north = cellShiftX,
+      south = cellShiftX,
+      east  = cellShiftY,
+      west  = cellShiftY,
+    }
+
+    for direction, shift in pairs(connectionShifts) do
+      local conn = c[direction]
+      if conn then
+        conn.offset = (conn.offset or 0) + shift
+      end
     end
   end
 

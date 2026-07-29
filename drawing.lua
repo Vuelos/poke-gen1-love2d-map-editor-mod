@@ -1,8 +1,8 @@
 -- Drawing routines for the map editor: map tiles, entity markers, cursor,
 -- palette panel, mode bar, grid overlay, and help screen.
 
-local MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5 }
-local MODE_NAMES = { "BLK", "WRP", "OBJ", "SGN", "ENC" }
+local MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5, CONNECTIONS = 6 }
+local MODE_NAMES = { "BLK", "WRP", "OBJ", "SGN", "ENC", "CON" }
 local CELL_PX = 16
 local TILE_PX = 8
 local BLOCK_PX = 32
@@ -72,6 +72,7 @@ function Drawing.drawEntityMarkers(screen)
   local list = screen.mode == MODES.WARPS and screen.def.warps
     or screen.mode == MODES.OBJECTS and screen.def.objects
     or screen.def.signs
+    or screen.mode == MODES.CONNECTIONS and screen.def.connections
   for _, ent in ipairs(list) do
     local ex = ent.x * CELL_PX - screen.scrollX
     local ey = ent.y * CELL_PX - screen.scrollY
@@ -102,12 +103,22 @@ function Drawing.drawEntityMarkers(screen)
         love.graphics.setColor(1, 1, 1, 0.8)
         love.graphics.rectangle("line", ex, ey, 16, 16)
       end
+    elseif screen.mode == MODES.CONNECTIONS then
+      if ent and ent.width and ent.height then
+        local color = { 0.2, 1, 0.4, 0.7 }
+        local w = ent.width * 16
+        local h = ent.height * 16
+        love.graphics.setColor(color)
+        love.graphics.rectangle("fill", ex - w, ey - h, w * 2, h * 2)
+        love.graphics.setColor(1, 1, 1, 0.8)
+        love.graphics.rectangle("line", ex - w, ey - h, w * 2, h * 2)
+      end
     else
-      local color = screen.mode == MODES.WARPS and { 0.2, 0.6, 1, 0.7 } or { 0.2, 1, 0.4, 0.7 }
-      local r = 10
-      love.graphics.setColor(color); love.graphics.circle("fill", ex + r, ey + r, r)
-      love.graphics.setColor(1, 1, 1, 0.8); love.graphics.circle("line", ex + r, ey + r, r)
-    end
+    local color = screen.mode == MODES.WARPS and { 0.2, 0.6, 1, 0.7 } or { 0.2, 1, 0.4, 0.7 }
+    local r = 10
+    love.graphics.setColor(color); love.graphics.circle("fill", ex + r, ey + r, r)
+    love.graphics.setColor(1, 1, 1, 0.8); love.graphics.circle("line", ex + r, ey + r, r)
+  end
 
     if screen.entityMoving and screen.entityMovingTarget == ent then
       love.graphics.setColor(1, 1, 0, 0.9)
@@ -272,7 +283,7 @@ function Drawing.drawGrid(screen)
 end
 
 -- Draws the mode indicator bar at the top of the screen, showing the
--- current editing mode (BLK/WRP/OBJ/SGN) and cursor coordinates.
+-- current editing mode (BLK/WRP/OBJ/SGN/ENC/CON) and cursor coordinates.
 -- Also displays a "!" marker when the map has unsaved changes.
 function Drawing.drawModeBar(screen)
   love.graphics.setColor(0, 0, 0, 0.7)
@@ -292,10 +303,6 @@ function Drawing.drawModeBar(screen)
   end
   love.graphics.setColor(1, 1, 1, 1)
 
-  if screen.mapChanged then
-    love.graphics.setColor(1, 0.8, 0.2, 1)
-    screen.font.draw("!", 132, 0)
-  end
   love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -310,14 +317,12 @@ function Drawing.drawHelp(screen)
     "CONTROLS",
     "Arrows/WASD  Move",
     "Enter/Space  Edit",
-    "1-4  BLK/WRP/OBJ/SGN",
-    "5  Encounter edit",
+    "1-6  BLK/WRP/OBJ/SGN/ENC/CON",
     "Q/E  Prev/next blk",
     "R  Revert block",
     "F  Flood fill",
     "G  Toggle grid",
     "Tab  Palette",
-    "RClick  Pick blk",
     "H  Toggle help",
     "CtrlZ Undo  CtrlY",
     "CtrlS Save  CtrlE",
