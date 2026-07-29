@@ -186,6 +186,7 @@ function Drawing.drawPalette(screen, panelX)
             if remap and remap[ci - 1] then tile = remap[ci - 1] end
             local quad = quads[tile]
             if quad then
+              love.graphics.setColor(1, 1, 1, 1)
               love.graphics.draw(image, quad, px + col * TILE_PX, py + row * TILE_PX)
             end
           end
@@ -240,6 +241,7 @@ function Drawing.drawSpritePalette(screen, panelX)
     end
     local sr = screen._spriteRenderers[spriteId]
     if sr then
+      love.graphics.setColor(1, 1, 1, 1)
       sr:draw(px, py + 4, 0, 0, "down", 0, false)
     else
       love.graphics.setColor(1, 0.4, 0.2, 0.7)
@@ -320,7 +322,7 @@ function Drawing.drawHelp(screen)
     "1-6  BLK/WRP/OBJ/SGN/ENC/CON",
     "Q/E  Prev/next blk",
     "R  Revert block",
-    "F  Flood fill",
+    "F  Copy cursor block",
     "G  Toggle grid",
     "Tab  Palette",
     "H  Toggle help",
