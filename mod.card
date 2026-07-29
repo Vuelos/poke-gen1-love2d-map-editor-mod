@@ -1,0 +1,6 @@
+id: map_editor
+name: Map Editor
+author: ggro
+summary: In-game map editor for block painting, entity editing, etc.
+category: TOOL
+version: 0.0.1

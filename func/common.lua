@@ -1,0 +1,35 @@
+-- Shared constants and helpers for the map editor modules.
+
+local Common = {}
+
+Common.MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5 }
+Common.CELL_PX = 16
+Common.BLOCK_PX = 32
+Common.PAL_BLOCK_SIZE = 32
+Common.PAL_GAP = 4
+Common.PAL_ROWS = 4
+Common.PAL_COLS = 1
+Common.PAL_VISIBLE = Common.PAL_ROWS * Common.PAL_COLS
+
+function Common.deepCopy(a)
+  if type(a) ~= "table" then return a end
+  local out = {}
+  for k, v in pairs(a) do out[k] = Common.deepCopy(v) end
+  return out
+end
+
+function Common.tablesEqual(a, b)
+  if a == b then return true end
+  if type(a) ~= "table" or type(b) ~= "table" then return false end
+  local ka, kb = 0, 0
+  for k, v in pairs(a) do
+    ka = ka + 1
+    if not Common.tablesEqual(v, b[k]) then return false end
+  end
+  for k in pairs(b) do
+    kb = kb + 1
+  end
+  return ka == kb
+end
+
+return Common
