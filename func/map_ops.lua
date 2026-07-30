@@ -47,18 +47,21 @@ function MapOps.expandMap(self, needL, needR, needT, needB)
     end
       
     local c = self.def.connections or {}
-    local connectionShifts = {
-      north = cellShiftX,
-      south = cellShiftX,
-      east  = cellShiftY,
-      west  = cellShiftY,
-    }
 
-    for direction, shift in pairs(connectionShifts) do
-      local conn = c[direction]
-      if conn then
-        conn.offset = (conn.offset or 0) + shift
-      end
+    if c.north then
+      c.north.offset = (c.north.offset or 0) + cellShiftX / 32
+    end
+
+    if c.south then
+      c.south.offset = (c.south.offset or 0) + cellShiftX / 32
+    end
+
+    if c.east then
+      c.east.offset = (c.east.offset or 0) + cellShiftY / 32
+    end
+
+    if c.west then
+      c.west.offset = (c.west.offset or 0) + cellShiftY / 32
     end
   end
 
@@ -125,6 +128,11 @@ function MapOps.floodFill(self)
     self.mapChanged = true
     self.map.renderer:rebuild()
   end
+end
+
+function MapOps.selectCursorBlock(self)
+
+  
 end
 
 function MapOps.restoreSnapshot(self, kind)

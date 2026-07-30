@@ -14,7 +14,7 @@ local tablesEqual = Common.tablesEqual
 -- the current map definition and the original snapshot.
 function Save.buildPatch(mapDef, original)
   local patch = {}
-  local tracked = {"blocks", "warps", "objects", "signs", "borderBlock", "width", "height", "textDefs"}
+  local tracked = {"blocks", "warps", "objects", "signs", "borderBlock", "width", "height", "textDefs", "connections"}
   if original then
     for _, key in ipairs(tracked) do
       local cur = mapDef[key]
@@ -157,17 +157,14 @@ function Save.applyEncounterPatches(patches, data)
   return applied
 end
 
--- Applies connection patches to data.connections.
 function Save.applyConnectionPatches(patches, data)
-  if not patches then return 0 end
-  local applied = 0
-  for mapId, connData in pairs(patches) do
-    if data.connections then
-      data.connections[mapId] = connData
-      applied = applied + 1
+    if not patches then return 0 end
+
+    for k, v in pairs(patches) do
+        if data.connections then
+          data.connections[k] = v
+        end
     end
-  end
-  return applied
 end
 
 -- Writes a Lua file to the save directory under edited_maps/ and returns

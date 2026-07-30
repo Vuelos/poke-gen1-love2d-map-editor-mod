@@ -33,6 +33,7 @@ function Undo:capture(def)
     warps       = deepCopy(def.warps),
     objects     = deepCopy(def.objects),
     signs       = deepCopy(def.signs),
+    connections = deepCopy(def.connections),
     width       = def.width,
     height      = def.height,
     borderBlock = def.borderBlock,
@@ -52,6 +53,7 @@ local function apply(def, snapshot)
   def.warps       = deepCopy(snapshot.warps)
   def.objects     = deepCopy(snapshot.objects)
   def.signs       = deepCopy(snapshot.signs)
+  def.connections = deepCopy(snapshot.connections)
   def.width       = snapshot.width
   def.height      = snapshot.height
   def.borderBlock = snapshot.borderBlock
@@ -66,6 +68,7 @@ function Undo:undo(def)
     warps       = deepCopy(def.warps),
     objects     = deepCopy(def.objects),
     signs       = deepCopy(def.signs),
+    connections = deepCopy(def.connections),
     width       = def.width,
     height      = def.height,
     borderBlock = def.borderBlock,
@@ -85,6 +88,7 @@ function Undo:redo(def)
     warps       = deepCopy(def.warps),
     objects     = deepCopy(def.objects),
     signs       = deepCopy(def.signs),
+    connections = deepCopy(def.connections),
     width       = def.width,
     height      = def.height,
     borderBlock = def.borderBlock,

@@ -26,7 +26,7 @@ function Camera.clampScroll(self)
 end
 
 function Camera.zoomScale()
-  return 1
+  return require("src.render.Zoom").offset
 end
 
 function Camera.blockPx()

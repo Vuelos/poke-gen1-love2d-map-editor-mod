@@ -113,7 +113,13 @@ function EditorScreen:enter()
       end
     end
   end
-  if self.def.connections then self.def.connections = Save.applyConnectionPatches({ [self.mapId] = self.def.connections }, self.data) end
+
+  if self.def.connections then
+      Save.applyConnectionPatches({
+          [self.mapId] = self.def.connections
+      }, self.data)
+  end  
+  
   -- Inject custom text defs into game data so they resolve correctly
   if self.def.textDefs and self.data then
     for _, td in ipairs(self.def.textDefs) do
@@ -132,12 +138,10 @@ function EditorScreen:enter()
     self.data.encounters[self.mapId] = encPatch
   end
   self.map.renderer:rebuild()
-  self:hookMouse()
 end
 
-  -- Called when the screen is exited: unhooks mouse events.
+  -- Called when the screen is exited
   function EditorScreen:exit()
-    self:unhookMouse()
   end
 
 -- Builds a patch of only the changed fields and saves it via the Save
