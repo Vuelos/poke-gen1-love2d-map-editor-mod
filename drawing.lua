@@ -69,10 +69,15 @@ end
 -- back to a coloured rectangle if the sprite cannot be loaded).  A yellow
 -- highlight box is drawn around any entity currently being moved.
 function Drawing.drawEntityMarkers(screen)
-  local list = screen.mode == MODES.WARPS and screen.def.warps
-    or screen.mode == MODES.OBJECTS and screen.def.objects
-    or screen.def.signs
-    or screen.mode == MODES.CONNECTIONS and screen.def.connections
+  if screen.mode == MODES.CONNECTIONS then
+    Drawing.drawConnectionSilhouettes(screen)
+    return
+  end
+  local list
+  if screen.mode == MODES.WARPS then list = screen.def.warps
+  elseif screen.mode == MODES.OBJECTS then list = screen.def.objects
+  elseif screen.mode == MODES.SIGNS then list = screen.def.signs
+  else list = {} end
   for _, ent in ipairs(list) do
     local ex = ent.x * CELL_PX - screen.scrollX
     local ey = ent.y * CELL_PX - screen.scrollY
@@ -103,16 +108,6 @@ function Drawing.drawEntityMarkers(screen)
         love.graphics.setColor(1, 1, 1, 0.8)
         love.graphics.rectangle("line", ex, ey, 16, 16)
       end
-    elseif screen.mode == MODES.CONNECTIONS then
-      if ent and ent.width and ent.height then
-        local color = { 0.2, 1, 0.4, 0.7 }
-        local w = ent.width * 16
-        local h = ent.height * 16
-        love.graphics.setColor(color)
-        love.graphics.rectangle("fill", ex - w, ey - h, w * 2, h * 2)
-        love.graphics.setColor(1, 1, 1, 0.8)
-        love.graphics.rectangle("line", ex - w, ey - h, w * 2, h * 2)
-      end
     else
     local color = screen.mode == MODES.WARPS and { 0.2, 0.6, 1, 0.7 } or { 0.2, 1, 0.4, 0.7 }
     local r = 10
@@ -123,6 +118,65 @@ function Drawing.drawEntityMarkers(screen)
     if screen.entityMoving and screen.entityMovingTarget == ent then
       love.graphics.setColor(1, 1, 0, 0.9)
       love.graphics.rectangle("line", ex - 1, ey - 1, 18, 18)
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- Draws all map connections as green semi-transparent silhouettes at their
+-- correct map-edge positions.  Each connection is labelled with its direction
+-- and target map.  The silhouette spans the full strip width/height (map
+-- width for N/S, map height for W/E) and is 2 blocks deep.
+function Drawing.drawConnectionSilhouettes(screen)
+  local conns = screen.def.connections or {}
+  if not next(conns) then return end
+  local def = screen.def
+  local mw = def.width * 32
+  local mh = def.height * 32
+  local sx, sy = screen.scrollX, screen.scrollY
+  local data = screen.data
+
+  for dir, conn in pairs(conns) do
+    local off = (conn.offset or 0) * 32
+    local destDef = data and data.maps and data.maps[conn.map]
+
+    local rx, ry, rw, rh
+
+    if dir == "north" then
+      rw = destDef and destDef.width * 32 or mw
+      rh = 64
+      rx = off
+      ry = -rh
+    elseif dir == "south" then
+      rw = destDef and destDef.width * 32 or mw
+      rh = 64
+      rx = off
+      ry = mh
+    elseif dir == "west" then
+      rw = 64
+      rh = destDef and destDef.height * 32 or mh
+      rx = -rw
+      ry = off
+    elseif dir == "east" then
+      rw = 64
+      rh = destDef and destDef.height * 32 or mh
+      rx = mw
+      ry = off
+    end
+
+    local dx = rx - sx
+    local dy = ry - sy
+
+    love.graphics.setColor(0.2, 1, 0.4, 0.35)
+    love.graphics.rectangle("fill", dx, dy, rw, rh)
+    love.graphics.setColor(0.2, 1, 0.4, 0.8)
+    love.graphics.rectangle("line", dx, dy, rw, rh)
+    love.graphics.setColor(1, 1, 1, 1)
+    screen.font.draw(dir:upper() .. " " .. (conn.map or ""), dx + 2, dy + 2)
+
+    if screen.mode == MODES.CONNECTIONS and screen._selectedDir == dir then
+      love.graphics.setColor(1, 1, 0, 0.9)
+      love.graphics.rectangle("line", dx - 1, dy - 1, rw + 2, rh + 2)
     end
   end
   love.graphics.setColor(1, 1, 1, 1)
@@ -147,7 +201,7 @@ function Drawing.drawPalette(screen, panelX)
   if screen.mode == MODES.OBJECTS then
     Drawing.drawSpritePalette(screen, panelX)
     return
-  elseif screen.mode == MODES.ENCOUNTERS then return end
+  elseif screen.mode == MODES.ENCOUNTERS or screen.mode == MODES.CONNECTIONS then return end
   local x, y = panelX + 4, 10
   local size = PAL_BLOCK_SIZE
   local r = screen.map.renderer
@@ -291,20 +345,19 @@ function Drawing.drawModeBar(screen)
   love.graphics.setColor(0, 0, 0, 0.7)
   love.graphics.rectangle("fill", 0, 0, 160, 8)
 
-  for i = 1, 5 do
-    local mx = (i - 1) * 32
+  local slotW = 26
+  for i = 1, 6 do
+    local mx = (i - 1) * slotW
     local label = MODE_NAMES[i]
     if i == screen.mode then
       love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.rectangle("fill", mx, 0, 32, 8)
+      love.graphics.rectangle("fill", mx, 0, slotW, 8)
       love.graphics.setColor(0, 0, 0, 1)
     else
       love.graphics.setColor(0.6, 0.6, 0.6, 1)
     end
-    screen.font.draw(label, mx + 4, 0)
+    screen.font.draw(label, mx + 2, 0)
   end
-  love.graphics.setColor(1, 1, 1, 1)
-
   love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -320,7 +373,7 @@ function Drawing.drawHelp(screen)
     "Arrows/WASD  Move",
     "Enter/Space  Edit",
     "1-6  BLK/WRP/OBJ/SGN/ENC/CON",
-    "Q/E  Prev/next blk",
+    "Q/E  Prev/next ent",
     "R  Revert block",
     "F  Copy cursor block",
     "G  Toggle grid",
@@ -329,6 +382,7 @@ function Drawing.drawHelp(screen)
     "CtrlZ Undo  CtrlY",
     "CtrlS Save  CtrlE",
     "Move: Arrows/Ent",
+    "CON: Q/E cycle, Mov",
     "Esc  Close editor",
   }
   for i, line in ipairs(lines) do

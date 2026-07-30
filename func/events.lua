@@ -24,23 +24,47 @@ function Events.onKeyPressed(self, key)
 
   if self.entityMoving then
     local ent = self.entityMovingTarget
-    if key == "up" or key == "w" then ent.y = math.max(0, ent.y - 1)
-    elseif key == "down" or key == "s" then ent.y = ent.y + 1
-    elseif key == "left" or key == "a" then ent.x = math.max(0, ent.x - 1)
-    elseif key == "right" or key == "d" then ent.x = ent.x + 1
-    elseif key == "return" or key == "space" then
-      self.entityMoving = false
-      self.entityMovingKind = nil
-      self.entityMovingTarget = nil
-      self.entityMovingOrig = nil
-      self.mapChanged = true
-    elseif key == "escape" then
-      ent.x = self.entityMovingOrig.x
-      ent.y = self.entityMovingOrig.y
-      self.entityMoving = false
-      self.entityMovingKind = nil
-      self.entityMovingTarget = nil
-      self.entityMovingOrig = nil
+    local kind = self.entityMovingKind
+    if kind == "connection" then
+      local dir = self._selectedDir
+      if key == "left" or key == "a" then
+        ent.offset = (ent.offset or 0) - 1
+      elseif key == "right" or key == "d" then
+        ent.offset = (ent.offset or 0) + 1
+      elseif key == "up" or key == "w" then
+        ent.offset = (ent.offset or 0) - 1
+      elseif key == "down" or key == "s" then
+        ent.offset = (ent.offset or 0) + 1
+      elseif key == "return" or key == "space" then
+        local conn = ent
+        self.entityMoving = false; self.entityMovingKind = nil; self.entityMovingTarget = nil; self.entityMovingOrig = nil
+        self.mapChanged = true
+        EntityEditor.editEntity(self, "connection", conn)
+        return
+      elseif key == "escape" then
+        ent.offset = self.entityMovingOrig.offset
+        self.entityMoving = false; self.entityMovingKind = nil; self.entityMovingTarget = nil; self.entityMovingOrig = nil
+        return
+      end
+      -- Keep cursor positioned at connection zone so scroll follows the silhouette
+      local mw = self.def.width * 2; local mh = self.def.height * 2
+      local off = (ent.offset or 0) * 2
+      if dir == "north" then self.cursorBx = off + mw / 2; self.cursorBy = -2
+      elseif dir == "south" then self.cursorBx = off + mw / 2; self.cursorBy = mh + 2
+      elseif dir == "west" then self.cursorBx = -2; self.cursorBy = off + mh / 2
+      elseif dir == "east" then self.cursorBx = mw + 2; self.cursorBy = off + mh / 2 end
+    else
+      if key == "up" or key == "w" then ent.y = math.max(0, ent.y - 1)
+      elseif key == "down" or key == "s" then ent.y = ent.y + 1
+      elseif key == "left" or key == "a" then ent.x = math.max(0, ent.x - 1)
+      elseif key == "right" or key == "d" then ent.x = ent.x + 1
+      elseif key == "return" or key == "space" then
+        self.entityMoving = false; self.entityMovingKind = nil; self.entityMovingTarget = nil; self.entityMovingOrig = nil
+        self.mapChanged = true
+      elseif key == "escape" then
+        ent.x = self.entityMovingOrig.x; ent.y = self.entityMovingOrig.y
+        self.entityMoving = false; self.entityMovingKind = nil; self.entityMovingTarget = nil; self.entityMovingOrig = nil
+      end
     end
     return
   end
@@ -90,7 +114,24 @@ function Events.onKeyPressed(self, key)
     elseif key == "right" or key == "d" then self.cursorBx = self.cursorBx + step end
   elseif key == "tab" then self.showPalette = not self.showPalette
   elseif key == "q" then
-    if self.mode == MODES.OBJECTS and #self.spriteList > 0 then
+    if self.mode == MODES.CONNECTIONS then
+      local dirs = {}
+      for d in pairs(self.def.connections or {}) do table.insert(dirs, d) end
+      if #dirs > 0 then
+        table.sort(dirs)
+        local idx = 1
+        for i, d in ipairs(dirs) do if d == self._selectedDir then idx = i; break end end
+        local prev = (idx - 2 + #dirs) % #dirs + 1
+        self._selectedDir = dirs[prev]
+        local mw = self.def.width * 2; local mh = self.def.height * 2
+        local off = (self.def.connections[dirs[prev]].offset or 0) * 2
+        if dirs[prev] == "north" then self.cursorBx = off + mw / 2; self.cursorBy = -2
+        elseif dirs[prev] == "south" then self.cursorBx = off + mw / 2; self.cursorBy = mh + 2
+        elseif dirs[prev] == "west" then self.cursorBx = -2; self.cursorBy = off + mh / 2
+        elseif dirs[prev] == "east" then self.cursorBx = mw + 2; self.cursorBy = off + mh / 2
+        end
+      end
+    elseif self.mode == MODES.OBJECTS and #self.spriteList > 0 then
       local kind, ent = EntityEditor.selectedEntity(self)
       if kind == "object" and ent then
         if self.undo then self.undo:capture(self.def) end
@@ -110,7 +151,24 @@ function Events.onKeyPressed(self, key)
       self.selectedBlock = (self.selectedBlock - 1 + #self.tileset.blocks) % #self.tileset.blocks
     end
   elseif key == "e" then
-    if self.mode == MODES.OBJECTS and #self.spriteList > 0 then
+    if self.mode == MODES.CONNECTIONS then
+      local dirs = {}
+      for d in pairs(self.def.connections or {}) do table.insert(dirs, d) end
+      if #dirs > 0 then
+        table.sort(dirs)
+        local idx = 1
+        for i, d in ipairs(dirs) do if d == self._selectedDir then idx = i; break end end
+        local next = idx % #dirs + 1
+        self._selectedDir = dirs[next]
+        local mw = self.def.width * 2; local mh = self.def.height * 2
+        local off = (self.def.connections[dirs[next]].offset or 0) * 2
+        if dirs[next] == "north" then self.cursorBx = off + mw / 2; self.cursorBy = -2
+        elseif dirs[next] == "south" then self.cursorBx = off + mw / 2; self.cursorBy = mh + 2
+        elseif dirs[next] == "west" then self.cursorBx = -2; self.cursorBy = off + mh / 2
+        elseif dirs[next] == "east" then self.cursorBx = mw + 2; self.cursorBy = off + mh / 2
+        end
+      end
+    elseif self.mode == MODES.OBJECTS and #self.spriteList > 0 then
       local kind, ent = EntityEditor.selectedEntity(self)
       if kind == "object" and ent then
         if self.undo then self.undo:capture(self.def) end
@@ -141,12 +199,7 @@ function Events.onKeyPressed(self, key)
     self.mode = MODES.ENCOUNTERS
     require("mods.map_editor.scene.encounter_editor").edit(self)
   elseif key == "6" then
-    local ent = EntityEditor.selectedEntity(self)
-    if ent and ent.kind == "connection" then
-      require("mods.map_editor.scene.connection_editor").edit(self, ent)
-    else
-      self.mode = MODES.CONNECTIONS
-    end
+    self.mode = MODES.CONNECTIONS
   elseif key == "return" or key == "space" then
     if self.mode == MODES.BLOCKS then self:paintBlock()
     elseif self.mode == MODES.ENCOUNTERS then
@@ -156,10 +209,10 @@ function Events.onKeyPressed(self, key)
       if kind then EntityEditor.editEntity(self, kind, ent)
       elseif self.mode == MODES.WARPS then EntityEditor.addEntity(self, "warp")
       elseif self.mode == MODES.OBJECTS then EntityEditor.showObjectTypePicker(self)
-      elseif self.mode == MODES.SIGNS then EntityEditor.addEntity(self, "sign") end
+      elseif self.mode == MODES.SIGNS then EntityEditor.addEntity(self, "sign")
+      elseif self.mode == MODES.CONNECTIONS then EntityEditor.addEntity(self, "connection") end
     end
   elseif key == "r" and self.mode == MODES.BLOCKS then self:revertBlock()
-  elseif key == "n" then self:newMapDialog()
   elseif key == "escape" then
     if self._newMapState then self._newMapState = nil
     elseif self.showHelp then self.showHelp = false

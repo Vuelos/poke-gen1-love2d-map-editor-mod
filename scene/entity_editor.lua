@@ -67,6 +67,36 @@ function EntityEditor.selectedEntity(screen)
     for _, s in ipairs(screen.def.signs) do
       if s.x >= cx0 and s.x < cx1 and s.y >= cy0 and s.y < cy1 then return "sign", s end
     end
+  elseif screen.mode == MODES.CONNECTIONS then
+    local conns = screen.def.connections or {}
+    local data = screen.data
+    local mw = screen.def.width * 2
+    local mh = screen.def.height * 2
+    for dir, conn in pairs(conns) do
+      local destDef = data and data.maps and data.maps[conn.map]
+      local off = (conn.offset or 0) * 2
+      local cxo, cyo, cw, ch
+      if dir == "north" then
+        cw = destDef and destDef.width * 2 or mw; ch = 4
+        cxo = off; cyo = -ch
+      elseif dir == "south" then
+        cw = destDef and destDef.width * 2 or mw; ch = 4
+        cxo = off; cyo = mh
+      elseif dir == "west" then
+        cw = 4; ch = destDef and destDef.height * 2 or mh
+        cxo = -cw; cyo = off
+      elseif dir == "east" then
+        cw = 4; ch = destDef and destDef.height * 2 or mh
+        cxo = mw; cyo = off
+      else
+        cxo = 0; cyo = 0; cw = 0; ch = 0
+      end
+      if cx0 >= cxo and cx0 < cxo + cw and cy0 >= cyo and cy0 < cyo + ch then
+        screen._selectedDir = dir
+        return "connection", conn
+      end
+    end
+    screen._selectedDir = nil
   end
   return nil, nil
 end
@@ -103,6 +133,12 @@ function EntityEditor.buildItems(screen, kind, ent)
       { label = ("Text: %s"):format(textContent), value = "text" },
       { label = "DELETE", value = "delete" },
     }
+  elseif kind == "connection" then
+    return {
+      { label = ("Move %s"):format(screen._selectedDir or "?"), value = "move" },
+      { label = ("Map: %s"):format(ent.map or "NONE"), value = "map" },
+      { label = "DELETE", value = "delete" },
+    }
   end
   return nil
 end
@@ -113,7 +149,11 @@ function EntityEditor.refreshMenuItems(screen, kind, ent)
   local items = EntityEditor.buildItems(screen, kind, ent)
   if not items then return end
   menu.items = items
-  menu.title = (kind:upper()) .. " at " .. ent.x .. "," .. ent.y
+  if kind == "connection" then
+    menu.title = (kind:upper()) .. " " .. (screen._selectedDir or "?")
+  else
+    menu.title = (kind:upper()) .. " at " .. (ent.x or "?") .. "," .. (ent.y or "?")
+  end
   menu.index = 1
   menu.scroll = 0
 end
@@ -128,6 +168,8 @@ function EntityEditor.addEntity(screen, kind)
     EntityEditor.showObjectTypePicker(screen)
   elseif kind == "sign" then
     table.insert(screen.def.signs, { x = cx, y = cy, text = "TEXT_GENERIC" })
+  elseif kind == "connection" then
+    EntityEditor.showConnectionDirPicker(screen)
   elseif kind == "npc" then
     table.insert(screen.def.objects, { index = #screen.def.objects + 1, x = cx, y = cy,
       sprite = "SPRITE_YOUNGSTER", movement = "STAY", range = "NONE", text = "TEXT_GENERIC" })
@@ -150,8 +192,13 @@ end
 function EntityEditor.editEntity(screen, kind, ent)
   local items = EntityEditor.buildItems(screen, kind, ent)
   if not items then return end
-  local menu = screen.mod.ui.ListMenu.new(screen.game,
-    (kind:upper()) .. " at " .. ent.x .. "," .. ent.y, items, {
+  local title
+  if kind == "connection" then
+    title = (kind:upper()) .. " " .. (screen._selectedDir or "?")
+  else
+    title = (kind:upper()) .. " at " .. (ent.x or "?") .. "," .. (ent.y or "?")
+  end
+  local menu = screen.mod.ui.ListMenu.new(screen.game, title, items, {
     onChoose = function(item)
       if item.value == "delete" then
         EntityEditor.removeEntity(screen, kind, ent)
@@ -169,9 +216,27 @@ function EntityEditor.editEntity(screen, kind, ent)
 end
 
 function EntityEditor.editField(screen, kind, ent, field)
+  if field == "map" then
+    if kind == "connection" then
+      local items = {}
+      for mapId in pairs(screen.game.data.maps or {}) do
+        table.insert(items, { label = mapId, value = mapId })
+      end
+      table.sort(items, function(a, b) return a.label < b.label end)
+      local box = screen.mod.ui.ListMenu.new(screen.game, "Select Map", items, {
+        onChoose = function(c)
+          screen.game.stack:pop()
+          if screen.undo then screen.undo:capture(screen.def) end
+          ent.map = c.value; screen.mapChanged = true
+        end,
+      })
+      screen.game.stack:push(box)
+      return
+    end
+  end
   if field == "move" then
     EntityEditor.startMoving(screen, kind, ent)
- elseif field == "destWarp" then
+  elseif field == "destWarp" then
   local items = {}
 
   local destMap = screen.game.data.maps and screen.game.data.maps[ent.destMap]
@@ -335,7 +400,19 @@ function EntityEditor.startMoving(screen, kind, ent)
   screen.entityMoving = true
   screen.entityMovingKind = kind
   screen.entityMovingTarget = ent
-  screen.entityMovingOrig = { x = ent.x, y = ent.y }
+  if kind == "connection" then
+    screen.entityMovingOrig = { offset = ent.offset or 0 }
+    -- Position cursor at connection zone so scroll follows
+    local dir = screen._selectedDir
+    local mw = screen.def.width * 2; local mh = screen.def.height * 2
+    local off = (ent.offset or 0) * 2
+    if dir == "north" then screen.cursorBx = off + mw / 2; screen.cursorBy = -2
+    elseif dir == "south" then screen.cursorBx = off + mw / 2; screen.cursorBy = mh + 2
+    elseif dir == "west" then screen.cursorBx = -2; screen.cursorBy = off + mh / 2
+    elseif dir == "east" then screen.cursorBx = mw + 2; screen.cursorBy = off + mh / 2 end
+  else
+    screen.entityMovingOrig = { x = ent.x, y = ent.y }
+  end
 end
 
 -- Shows a type picker when creating a new object on an empty tile.
@@ -354,7 +431,65 @@ function EntityEditor.showObjectTypePicker(screen)
   screen.game.stack:push(menu)
 end
 
+-- Shows a direction picker when creating or editing a connection.
+-- If editing an existing connection, allows changing its direction key.
+function EntityEditor.showConnectionDirPicker(screen, existingEnt)
+  local items = {
+    { label = "North", value = "north" },
+    { label = "South", value = "south" },
+    { label = "East", value = "east" },
+    { label = "West", value = "west" },
+  }
+  local title = existingEnt and "Change direction" or "Connection direction"
+  local menu = screen.mod.ui.ListMenu.new(screen.game, title, items, {
+    onChoose = function(c)
+      screen.game.stack:pop()
+      if not screen.def.connections then screen.def.connections = {} end
+      local dir = c.value
+      screen._selectedDir = dir
+      if existingEnt then
+        for oldDir, conn in pairs(screen.def.connections) do
+          if conn == existingEnt then
+            if screen.undo then screen.undo:capture(screen.def) end
+            screen.def.connections[oldDir] = nil
+            screen.def.connections[dir] = conn
+            screen.mapChanged = true
+            EntityEditor.editEntity(screen, "connection", conn)
+            return
+          end
+        end
+      else
+        if screen.def.connections[dir] then
+          screen._selectedDir = dir
+          EntityEditor.editEntity(screen, "connection", screen.def.connections[dir])
+          return
+        end
+        if screen.undo then screen.undo:capture(screen.def) end
+        local conn = { map = screen.mapId, offset = 0 }
+        screen.def.connections[dir] = conn
+        screen.mapChanged = true
+        -- Enter moving mode so user can position the silhouette on the map
+        screen._selectedDir = dir
+        EntityEditor.startMoving(screen, "connection", conn)
+      end
+    end,
+  })
+  screen.game.stack:push(menu)
+end
+
 function EntityEditor.removeEntity(screen, kind, ent)
+  if kind == "connection" then
+    local conns = screen.def.connections or {}
+    for dir, c in pairs(conns) do
+      if c == ent then
+        if screen.undo then screen.undo:capture(screen.def) end
+        conns[dir] = nil
+        screen.mapChanged = true
+        return
+      end
+    end
+    return
+  end
   local arr = kind == "warp" and screen.def.warps or kind == "object" and screen.def.objects or screen.def.signs
   if not arr then return end
   if screen.undo then screen.undo:capture(screen.def) end

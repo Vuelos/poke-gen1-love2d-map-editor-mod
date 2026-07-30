@@ -55,16 +55,16 @@ return function(mod)
   })
 
   -- Intercepts F6 to toggle the map editor open/closed.
-  -- When the editor is already on the stack, pops it; otherwise pushes
-  -- a new editor for the current overworld map.
+  -- Also intercepts 1-6 and Escape while the editor is on the stack
+  -- to allow mode switching and menu closing from sub-menus.
   do
     local Game = require("src.core.Game")
     local SCREEN_ID = "MapEditor"
     local orig = Game.keypressed
     if orig then
       Game.keypressed = function(self, key)
+        local states = self.stack and self.stack.states
         if key == "f6" then
-          local states = self.stack and self.stack.states
           if states then
             for i = #states, 1, -1 do
               if states[i].screenId == SCREEN_ID then
@@ -79,6 +79,27 @@ return function(mod)
           end
           mod.log:warn("F6: no overworld map to edit")
           return
+        end
+        -- Number keys: pop sub-menus above editor, forward key to editor
+        if key >= "1" and key <= "6" and states then
+          for i = #states, 1, -1 do
+            if states[i].screenId == SCREEN_ID then
+              while self.stack:top() ~= states[i] do self.stack:pop() end
+              break
+            end
+          end
+        end
+        -- Escape: close top sub-menu if editor is on stack but not top
+        if key == "escape" and states then
+          local editorOnStack = false
+          for i = #states, 1, -1 do
+            if states[i].screenId == SCREEN_ID then
+              editorOnStack = true; break
+            end
+          end
+          if editorOnStack and self.stack:top() and self.stack:top().screenId ~= SCREEN_ID then
+            self.stack:pop(); return
+          end
         end
         return orig(self, key)
       end

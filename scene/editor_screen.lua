@@ -235,7 +235,7 @@ function EditorScreen:draw()
   end
 
   local vw, vh = 160, 144
-  local palW = self.showPalette and 40 or 0
+  local palW = self.showPalette and self.mode ~= MODES.CONNECTIONS and 40 or 0
   local mapViewW = vw - palW
 
   love.graphics.setScissor(0, 8, mapViewW, 136)
