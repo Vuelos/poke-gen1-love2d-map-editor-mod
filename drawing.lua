@@ -1,46 +1,53 @@
 -- Drawing routines for the map editor: map tiles, entity markers, cursor,
 -- palette panel, mode bar, grid overlay, and help screen.
 
-local MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5, CONNECTIONS = 6 }
-local MODE_NAMES = { "BLK", "WRP", "OBJ", "SGN", "ENC", "CON" }
+local Common = require("mods.map_editor.func.common")
+local MODES = Common.MODES
+local MODE_NAMES = { "MAP", "ENT", "ENC" }
 local CELL_PX = 16
 local TILE_PX = 8
 local BLOCK_PX = 32
 local PAL_BLOCK_SIZE = 32
 local PAL_GAP = 4
-local PAL_ROWS = 4
-local PAL_COLS = 1
-local PAL_VISIBLE = PAL_ROWS * PAL_COLS
 
 local Drawing = {}
 
--- Draws the visible portion of the map tiles within the scroll viewport.
--- Iterates over tile-aligned regions and renders each tile quad from
--- the map renderer, applying block aliasing when present.
-function Drawing.drawMap(screen)
-  local r = screen.map.renderer
-  if not r then return end
-  local palW = screen.showPalette and 40 or 0
-  local vw = 160 - palW
-  local vh = 136
-  local sx, sy = screen.scrollX, screen.scrollY
+-- Live UI surface size for this frame.  The editor runs fullscreen (its
+-- own uiSize() fills the window); sub-menus on the stack revert the canvas
+-- to the classic 160x144 GB screen, so every metric must be derived from the
+-- actual canvas rather than hardcoded.
+local function viewSize()
+  return require("src.render.Renderer"):uiSize()
+end
 
+-- Palette column width in GB pixels.
+local PAL_W = Common.PAL_W
+
+-- Width/height of the map viewport below the mode bar for this screen.
+function Drawing.viewport(screen)
+  local vw, vh = viewSize()
+  local palW = screen.showPalette and screen.mode ~= MODES.ENC and PAL_W or 0
+  return vw - palW, vh - 8
+end
+
+-- Draws the visible portion of one map's block body at a world offset
+-- (0,0 for the edited map), clipped to its own rect.  Shared by the edited
+-- map and, in MAP mode, the connected maps laid out around it so seams can
+-- be edited straight across.
+local function drawMapTiles(screen, r, def, ts, ox, oy, vw, vh)
+  if not r or not ts then return end
+  local sx, sy = screen.scrollX, screen.scrollY
   local image = r.image
   local quads = r.quads
   local aliasMap = r.aliasMap
-  local def = screen.def
-  local ts = screen.tileset
   local blocks = def.blocks
-  local bw = def.width
+  local bw, bh = def.width, def.height
 
-  local tx0 = math.max(0, math.floor(sx / 8))
-  local ty0 = math.max(0, math.floor(sy / 8))
-  local tx1 = math.min(bw * 4, math.ceil((sx + vw) / 8))
-  local ty1 = math.min(def.height * 4, math.ceil((sy + vh) / 8))
+  local tx0 = math.max(0, math.floor(sx / 8) - ox / 8)
+  local ty0 = math.max(0, math.floor(sy / 8) - oy / 8)
+  local tx1 = math.min(bw * 4, math.ceil((sx + vw) / 8) - ox / 8)
+  local ty1 = math.min(bh * 4, math.ceil((sy + vh) / 8) - oy / 8)
 
-  love.graphics.push()
-  love.graphics.origin()
-  love.graphics.setScissor(0, 8, vw, vh)
   for ty = ty0, ty1 - 1 do
     local by = math.floor(ty / 4)
     local tiy = ty % 4
@@ -55,53 +62,60 @@ function Drawing.drawMap(screen)
         if remap and remap[ci] then tile = remap[ci] end
         local quad = quads[tile]
         if quad then
-          love.graphics.draw(image, quad, tx * 8 - sx, ty * 8 - sy)
+          love.graphics.draw(image, quad, ox + tx * 8 - sx, oy + ty * 8 - sy)
         end
       end
     end
   end
+end
+
+-- Draws the visible map tiles within the scroll viewport: the connected
+-- maps first (MAP mode), then the edited map on top.  Iterates over
+-- tile-aligned regions and renders each tile quad from the map renderer,
+-- applying block aliasing when present.
+function Drawing.drawMap(screen)
+  local vw, vh = Drawing.viewport(screen)
+
+  love.graphics.push()
+  love.graphics.origin()
+  love.graphics.setScissor(0, 8, vw, vh)
+  if screen.mode == MODES.MAP then
+    for _, nb in ipairs(screen.neighbors or {}) do
+      drawMapTiles(screen, nb.map and nb.map.renderer, nb.def, nb.tileset,
+                   nb.ox, nb.oy, vw, vh)
+    end
+  end
+  drawMapTiles(screen, screen.map.renderer, screen.def, screen.tileset,
+               0, 0, vw, vh)
   love.graphics.setScissor()
   love.graphics.pop()
 end
 
--- Draws entity markers on the map.  Warps and signs render as coloured
--- circles; objects render the actual sprite via SpriteRenderer (falling
--- back to a coloured rectangle if the sprite cannot be loaded).  A yellow
--- highlight box is drawn around any entity currently being moved.
+-- Draws entity markers on the map in ENT mode: warps and signs render as
+-- coloured circles, objects render the actual sprite via SpriteRenderer
+-- (falling back to a coloured rectangle if the sprite cannot be loaded),
+-- and connection silhouettes are drawn underneath.  A yellow highlight box
+-- is drawn around any entity currently being moved.
 function Drawing.drawEntityMarkers(screen)
-  if screen.mode == MODES.CONNECTIONS then
-    Drawing.drawConnectionSilhouettes(screen)
-    return
-  end
-  local list
-  if screen.mode == MODES.WARPS then list = screen.def.warps
-  elseif screen.mode == MODES.OBJECTS then list = screen.def.objects
-  elseif screen.mode == MODES.SIGNS then list = screen.def.signs
-  else list = {} end
-  for _, ent in ipairs(list) do
+  if screen.mode ~= MODES.ENT then return end
+  Drawing.drawConnectionSilhouettes(screen)
+
+  local function drawObject(ent)
     local ex = ent.x * CELL_PX - screen.scrollX
     local ey = ent.y * CELL_PX - screen.scrollY
-
-    if screen.mode == MODES.OBJECTS then
-      local spriteId = ent.sprite
-      if spriteId and screen.data.sprites[spriteId] then
-        if not screen._spriteRenderers then screen._spriteRenderers = {} end
-        if not screen._spriteRenderers[spriteId] then
-          local def = screen.data.sprites[spriteId]
-          if def then
-            screen._spriteRenderers[spriteId] =
-              require("src.render.SpriteRenderer").new(def, spriteId .. "_editor")
-          end
+    local spriteId = ent.sprite
+    if spriteId and screen.data.sprites[spriteId] then
+      if not screen._spriteRenderers then screen._spriteRenderers = {} end
+      if not screen._spriteRenderers[spriteId] then
+        local def = screen.data.sprites[spriteId]
+        if def then
+          screen._spriteRenderers[spriteId] =
+            require("src.render.SpriteRenderer").new(def, spriteId .. "_editor")
         end
-        local sr = screen._spriteRenderers[spriteId]
-        if sr then
-          sr:draw(ent.x * 16, ent.y * 16, screen.scrollX, screen.scrollY, "down", 0, false)
-        else
-          love.graphics.setColor(1, 0.4, 0.2, 0.7)
-          love.graphics.rectangle("fill", ex, ey, 16, 16)
-          love.graphics.setColor(1, 1, 1, 0.8)
-          love.graphics.rectangle("line", ex, ey, 16, 16)
-        end
+      end
+      local sr = screen._spriteRenderers[spriteId]
+      if sr then
+        sr:draw(ent.x * 16, ent.y * 16, screen.scrollX, screen.scrollY, "down", 0, false)
       else
         love.graphics.setColor(1, 0.4, 0.2, 0.7)
         love.graphics.rectangle("fill", ex, ey, 16, 16)
@@ -109,16 +123,37 @@ function Drawing.drawEntityMarkers(screen)
         love.graphics.rectangle("line", ex, ey, 16, 16)
       end
     else
-    local color = screen.mode == MODES.WARPS and { 0.2, 0.6, 1, 0.7 } or { 0.2, 1, 0.4, 0.7 }
-    local r = 10
-    love.graphics.setColor(color); love.graphics.circle("fill", ex + r, ey + r, r)
-    love.graphics.setColor(1, 1, 1, 0.8); love.graphics.circle("line", ex + r, ey + r, r)
-  end
-
+      love.graphics.setColor(1, 0.4, 0.2, 0.7)
+      love.graphics.rectangle("fill", ex, ey, 16, 16)
+      love.graphics.setColor(1, 1, 1, 0.8)
+      love.graphics.rectangle("line", ex, ey, 16, 16)
+    end
     if screen.entityMoving and screen.entityMovingTarget == ent then
       love.graphics.setColor(1, 1, 0, 0.9)
       love.graphics.rectangle("line", ex - 1, ey - 1, 18, 18)
     end
+  end
+
+  local function drawCircle(ent, color)
+    local ex = ent.x * CELL_PX - screen.scrollX
+    local ey = ent.y * CELL_PX - screen.scrollY
+    local r = 10
+    love.graphics.setColor(color); love.graphics.circle("fill", ex + r, ey + r, r)
+    love.graphics.setColor(1, 1, 1, 0.8); love.graphics.circle("line", ex + r, ey + r, r)
+    if screen.entityMoving and screen.entityMovingTarget == ent then
+      love.graphics.setColor(1, 1, 0, 0.9)
+      love.graphics.rectangle("line", ex - 1, ey - 1, 18, 18)
+    end
+  end
+
+  for _, ent in ipairs(screen.def.warps or {}) do
+    drawCircle(ent, { 0.2, 0.6, 1, 0.7 })
+  end
+  for _, ent in ipairs(screen.def.objects or {}) do
+    drawObject(ent)
+  end
+  for _, ent in ipairs(screen.def.signs or {}) do
+    drawCircle(ent, { 0.2, 1, 0.4, 0.7 })
   end
   love.graphics.setColor(1, 1, 1, 1)
 end
@@ -174,7 +209,7 @@ function Drawing.drawConnectionSilhouettes(screen)
     love.graphics.setColor(1, 1, 1, 1)
     screen.font.draw(dir:upper() .. " " .. (conn.map or ""), dx + 2, dy + 2)
 
-    if screen.mode == MODES.CONNECTIONS and screen._selectedDir == dir then
+    if screen._selectedDir == dir then
       love.graphics.setColor(1, 1, 0, 0.9)
       love.graphics.rectangle("line", dx - 1, dy - 1, rw + 2, rh + 2)
     end
@@ -186,7 +221,7 @@ end
 -- grid position.  In blocks mode the cursor spans one block (2 cells);
 -- in entity modes it spans one cell.
 function Drawing.drawCursor(screen)
-  local bs = (screen.mode == MODES.BLOCKS) and 2 or screen.brushSize
+  local bs = (screen.mode == MODES.MAP) and 2 or screen.brushSize
   local ox = screen.cursorBx * CELL_PX - screen.scrollX
   local oy = screen.cursorBy * CELL_PX - screen.scrollY
   local sz = CELL_PX * bs
@@ -196,52 +231,62 @@ function Drawing.drawCursor(screen)
 end
 
 -- Draws the palette panel on the right side of the screen.
--- In OBJECTS mode, shows sprite previews; otherwise shows blocks.
+-- In ENT mode, shows sprite previews; otherwise shows blocks.
 function Drawing.drawPalette(screen, panelX)
-  if screen.mode == MODES.OBJECTS then
+  if screen.mode == MODES.ENT then
     Drawing.drawSpritePalette(screen, panelX)
     return
-  elseif screen.mode == MODES.ENCOUNTERS or screen.mode == MODES.CONNECTIONS then return end
+  elseif screen.mode == MODES.ENC then return end
   local x, y = panelX + 4, 10
   local size = PAL_BLOCK_SIZE
   local r = screen.map.renderer
   local image = r.image
   local quads = r.quads
+  local vw, vh = viewSize()
 
   love.graphics.setColor(0.1, 0.1, 0.1, 0.85)
-  love.graphics.rectangle("fill", panelX, 0, 160 - panelX, 144)
+  love.graphics.rectangle("fill", panelX, 0, vw - panelX, vh)
   love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
-  love.graphics.rectangle("line", panelX, 0, 160 - panelX, 144)
+  love.graphics.rectangle("line", panelX, 0, vw - panelX, vh)
 
-    for i = 1, PAL_VISIBLE do
-        for p_i = 1, #screen.paletteList do
-          if screen.paletteList[p_i] == screen.selectedBlock then
-            local selPos = p_i
-            if selPos < screen.paletteOffset + 1 then
-              screen.paletteOffset = math.max(0, selPos - 1)
-            elseif selPos > screen.paletteOffset + PAL_VISIBLE then
-              screen.paletteOffset = math.max(0, selPos - PAL_VISIBLE)
-            end
-            break
-          end
-        end
-        local idx = screen.paletteOffset + i
+    local cols = 2
+    local rowPitch = size + 8
+    local visible = math.max(1, math.floor((vh - 18) / rowPitch))
+    local perPage = visible * cols
+    local selPos = 0
+    for p_i = 1, #screen.paletteList do
+      if screen.paletteList[p_i] == screen.selectedBlock then
+        selPos = p_i
+        break
+      end
+    end
+    if selPos > 0 then
+      if selPos < screen.paletteOffset + 1 then
+        screen.paletteOffset = math.max(0, selPos - 1)
+      elseif selPos > screen.paletteOffset + perPage then
+        screen.paletteOffset = math.max(0, selPos - perPage)
+      end
+    end
+    for i = 1, perPage do
+      local idx = screen.paletteOffset + i
       if idx > #screen.paletteList then break end
       local blockId = screen.paletteList[idx]
+      local row = math.floor((i - 1) / cols)
+      local col = (i - 1) % cols
+      local px = x + col * (size + PAL_GAP)
+      local py = y + row * rowPitch
       local block = screen.tileset.blocks[blockId + 1]
       if block then
-        local py = y + (i - 1) * (size + PAL_GAP)
-        local px = x
-        for row = 0, 3 do
-          for col = 0, 3 do
-            local ci = row * 4 + col + 1
+        for r2 = 0, 3 do
+          for c2 = 0, 3 do
+            local ci = r2 * 4 + c2 + 1
             local tile = block[ci]
             local remap = screen.map.renderer and screen.map.renderer.aliasMap and screen.map.renderer.aliasMap[blockId]
             if remap and remap[ci - 1] then tile = remap[ci - 1] end
             local quad = quads[tile]
             if quad then
               love.graphics.setColor(1, 1, 1, 1)
-              love.graphics.draw(image, quad, px + col * TILE_PX, py + row * TILE_PX)
+              love.graphics.draw(image, quad, px + c2 * TILE_PX, py + r2 * TILE_PX)
             end
           end
         end
@@ -251,27 +296,28 @@ function Drawing.drawPalette(screen, panelX)
           love.graphics.setColor(1, 1, 1, 1)
         end
         love.graphics.setColor(0.8, 0.8, 0.8, 1)
-        screen.font.draw(tostring(blockId), px + size + 4, py + 4)
+        screen.font.draw(tostring(blockId), px, py + size)
         love.graphics.setColor(1, 1, 1, 1)
       end
     end
 end
 
--- Draws the sprite palette panel in OBJECTS mode.
--- Shows sprite previews in 2 columns of 7 rows (14 visible at a time),
--- auto-scrolling to keep the selected sprite visible.
+-- Draws the sprite palette panel in ENT mode.
+-- Shows sprite previews in 4 columns, auto-scrolling to keep the selected
+-- sprite visible.
 function Drawing.drawSpritePalette(screen, panelX)
   local list = screen.spriteList
   if not list or #list == 0 then return end
   local sel = screen.selectedBlock
+  local vw, vh = viewSize()
 
   love.graphics.setColor(0.1, 0.1, 0.1, 0.85)
-  love.graphics.rectangle("fill", panelX, 0, 160 - panelX, 144)
+  love.graphics.rectangle("fill", panelX, 0, vw - panelX, vh)
   love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
-  love.graphics.rectangle("line", panelX, 0, 160 - panelX, 144)
+  love.graphics.rectangle("line", panelX, 0, vw - panelX, vh)
 
-  local rows = 7
-  local cols = 2
+  local rows = math.max(4, math.floor((vh - 18) / 20))
+  local cols = 4
   local perPage = rows * cols
   local pageStart = math.floor((sel - 1) / perPage) * perPage
 
@@ -316,9 +362,7 @@ end
 -- Lines are drawn at block (32px) intervals within the map viewport.
 function Drawing.drawGrid(screen)
   if not screen.showGrid then return end
-  local palW = screen.showPalette and 40 or 0
-  local vw = 160 - palW
-  local vh = 136
+  local vw, vh = Drawing.viewport(screen)
   local sx, sy = screen.scrollX, screen.scrollY
 
   local bx0 = math.floor(sx / CELL_PX)
@@ -339,14 +383,15 @@ function Drawing.drawGrid(screen)
 end
 
 -- Draws the mode indicator bar at the top of the screen, showing the
--- current editing mode (BLK/WRP/OBJ/SGN/ENC/CON) and cursor coordinates.
--- Also displays a "!" marker when the map has unsaved changes.
+-- current editing mode (MAP/ENT/ENC).  Also displays a "!" marker when
+-- the map has unsaved changes.
 function Drawing.drawModeBar(screen)
+  local vw = viewSize()
   love.graphics.setColor(0, 0, 0, 0.7)
-  love.graphics.rectangle("fill", 0, 0, 160, 8)
+  love.graphics.rectangle("fill", 0, 0, vw, 8)
 
-  local slotW = 26
-  for i = 1, 6 do
+  local slotW = 53
+  for i = 1, 3 do
     local mx = (i - 1) * slotW
     local label = MODE_NAMES[i]
     if i == screen.mode then
@@ -354,7 +399,9 @@ function Drawing.drawModeBar(screen)
       love.graphics.rectangle("fill", mx, 0, slotW, 8)
       love.graphics.setColor(0, 0, 0, 1)
     else
-      love.graphics.setColor(0.6, 0.6, 0.6, 1)
+      love.graphics.setColor(0.25, 0.25, 0.25, 1)
+      love.graphics.rectangle("fill", mx, 0, slotW, 8)
+      love.graphics.setColor(0.85, 0.85, 0.85, 1)
     end
     screen.font.draw(label, mx + 2, 0)
   end
@@ -365,14 +412,14 @@ end
 -- box style (Font.drawBox) covering the area below the mode bar.
 function Drawing.drawHelp(screen)
   local Font = require("src.render.Font")
-  local vw, vh = 160, 144
-  Font.drawBox(0, 1, 20, 17)
+  local vw, vh = viewSize()
+  Font.drawBox(0, 1, math.floor(vw / 8), math.floor(vh / 8))
   love.graphics.setColor(0, 0, 0, 1)
   local lines = {
     "CONTROLS",
     "Arrows/WASD  Move",
-    "Enter/Space  Edit",
-    "1-6  BLK/WRP/OBJ/SGN/ENC/CON",
+    "Enter/Space  Edit/Add",
+    "1-3  MAP/ENT/ENC",
     "Q/E  Prev/next ent",
     "R  Revert block",
     "F  Copy cursor block",
@@ -382,7 +429,7 @@ function Drawing.drawHelp(screen)
     "CtrlZ Undo  CtrlY",
     "CtrlS Save  CtrlE",
     "Move: Arrows/Ent",
-    "CON: Q/E cycle, Mov",
+    "ENT: all entities",
     "Esc  Close editor",
   }
   for i, line in ipairs(lines) do

@@ -48,8 +48,9 @@ end
 function NewMap.drawNewMapDialog(self)
   local s = self._newMapState
   if not s then return end
-  local boxX, boxY = 4, 126
-  local boxW, boxH = 152, 10
+  local vw, vh = require("src.render.Renderer"):uiSize()
+  local boxX, boxY = 4, vh - 18
+  local boxW, boxH = vw - 8, 10
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", boxX, boxY, boxW, boxH)
   local function drawField(label, value, active, offset)

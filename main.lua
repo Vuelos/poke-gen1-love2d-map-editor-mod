@@ -81,7 +81,7 @@ return function(mod)
           return
         end
         -- Number keys: pop sub-menus above editor, forward key to editor
-        if key >= "1" and key <= "6" and states then
+        if key >= "1" and key <= "3" and states then
           for i = #states, 1, -1 do
             if states[i].screenId == SCREEN_ID then
               while self.stack:top() ~= states[i] do self.stack:pop() end

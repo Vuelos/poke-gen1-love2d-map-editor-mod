@@ -43,6 +43,16 @@ function Save.savePatch(mod, mapId, patch)
   mod.save:set(KEY, patches)
 end
 
+-- Sets a single field on an existing (or new) patch for mapId without
+-- dropping any other fields the patch already carries.
+function Save.updatePatchField(mod, mapId, key, value)
+  local patches = Save.getPatches(mod)
+  local patch = patches[mapId] or {}
+  patch[key] = value
+  patches[mapId] = patch
+  mod.save:set(KEY, patches)
+end
+
 -- Removes the patch for the given mapId from the mod save data.
 function Save.removePatch(mod, mapId)
   local patches = Save.getPatches(mod)

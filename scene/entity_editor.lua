@@ -1,4 +1,5 @@
-local MODES = { BLOCKS = 1, WARPS = 2, OBJECTS = 3, SIGNS = 4, ENCOUNTERS = 5, CONNECTIONS = 6 }
+local Common = require("mods.map_editor.func.common")
+local MODES = Common.MODES
 
 local EntityEditor = {}
 
@@ -55,19 +56,16 @@ function EntityEditor.selectedEntity(screen)
   local cy0 = screen.cursorBy
   local cx1 = cx0 + (screen.brushSize or 1)
   local cy1 = cy0 + (screen.brushSize or 1)
-  if screen.mode == MODES.WARPS then
-    for _, w in ipairs(screen.def.warps) do
+  if screen.mode == MODES.ENT then
+    for _, w in ipairs(screen.def.warps or {}) do
       if w.x >= cx0 and w.x < cx1 and w.y >= cy0 and w.y < cy1 then return "warp", w end
     end
-  elseif screen.mode == MODES.OBJECTS then
-    for _, o in ipairs(screen.def.objects) do
+    for _, o in ipairs(screen.def.objects or {}) do
       if o.x >= cx0 and o.x < cx1 and o.y >= cy0 and o.y < cy1 then return "object", o end
     end
-  elseif screen.mode == MODES.SIGNS then
-    for _, s in ipairs(screen.def.signs) do
+    for _, s in ipairs(screen.def.signs or {}) do
       if s.x >= cx0 and s.x < cx1 and s.y >= cy0 and s.y < cy1 then return "sign", s end
     end
-  elseif screen.mode == MODES.CONNECTIONS then
     local conns = screen.def.connections or {}
     local data = screen.data
     local mw = screen.def.width * 2
@@ -101,6 +99,66 @@ function EntityEditor.selectedEntity(screen)
   return nil, nil
 end
 
+-- Returns a flat, ordered list of all entities (warps, objects, signs,
+-- connections) with the cursor position that targets each one.
+local function allEntities(screen)
+  local out = {}
+  local def = screen.def
+  for _, w in ipairs(def.warps or {}) do
+    out[#out + 1] = { kind = "warp", ent = w, bx = w.x, by = w.y }
+  end
+  for _, o in ipairs(def.objects or {}) do
+    out[#out + 1] = { kind = "object", ent = o, bx = o.x, by = o.y }
+  end
+  for _, s in ipairs(def.signs or {}) do
+    out[#out + 1] = { kind = "sign", ent = s, bx = s.x, by = s.y }
+  end
+  local mw = def.width * 2; local mh = def.height * 2
+  for dir, c in pairs(def.connections or {}) do
+    local off = (c.offset or 0) * 2
+    local bx, by
+    if dir == "north" then bx = off + mw / 2; by = -2
+    elseif dir == "south" then bx = off + mw / 2; by = mh + 2
+    elseif dir == "west" then bx = -2; by = off + mh / 2
+    else bx = mw + 2; by = off + mh / 2 end
+    out[#out + 1] = { kind = "connection", ent = c, dir = dir, bx = bx, by = by }
+  end
+  return out
+end
+
+-- Cycles the selection to the previous/next entity on the map (ENT mode),
+-- moving the cursor to target it and syncing the sprite palette highlight.
+function EntityEditor.cycleEntity(screen, dir)
+  local list = allEntities(screen)
+  if #list == 0 then return end
+  local idx = nil
+  local kind, ent = EntityEditor.selectedEntity(screen)
+  if kind then
+    for i, item in ipairs(list) do
+      if item.ent == ent and item.kind == kind then idx = i; break end
+    end
+  end
+  if not idx then
+    for i, item in ipairs(list) do
+      if item.kind == "connection" and item.dir == screen._selectedDir then idx = i; break end
+    end
+  end
+  if not idx then idx = 1
+  elseif dir == "prev" then idx = (idx - 2 + #list) % #list + 1
+  else idx = idx % #list + 1 end
+  local item = list[idx]
+  screen.cursorBx = item.bx
+  screen.cursorBy = item.by
+  if item.kind == "connection" then
+    screen._selectedDir = item.dir
+  end
+  if item.kind == "object" and item.ent.sprite then
+    for i, sid in ipairs(screen.spriteList or {}) do
+      if sid == item.ent.sprite then screen.selectedBlock = i; break end
+    end
+  end
+end
+
 function EntityEditor.buildItems(screen, kind, ent)
   if kind == "warp" then
     return {
@@ -113,6 +171,7 @@ function EntityEditor.buildItems(screen, kind, ent)
     local otype = objectType(ent)
     local items = {
       { label = ("Move (%d,%d)"):format(ent.x, ent.y), value = "move" },
+      { label = ("Sprite: %s"):format(ent.sprite or "NONE"), value = "sprite" },
     }
     if otype == "item" then
       table.insert(items, { label = ("Item: %s"):format(ent.item or "NONE"), value = "item" })
@@ -224,6 +283,7 @@ function EntityEditor.editField(screen, kind, ent, field)
       end
       table.sort(items, function(a, b) return a.label < b.label end)
       local box = screen.mod.ui.ListMenu.new(screen.game, "Select Map", items, {
+        qePage = true,
         onChoose = function(c)
           screen.game.stack:pop()
           if screen.undo then screen.undo:capture(screen.def) end
@@ -236,6 +296,23 @@ function EntityEditor.editField(screen, kind, ent, field)
   end
   if field == "move" then
     EntityEditor.startMoving(screen, kind, ent)
+  elseif field == "sprite" then
+    local items = {}
+    for _, id in ipairs(screen.spriteList or {}) do
+      table.insert(items, { label = id, value = id })
+    end
+    local box = screen.mod.ui.ListMenu.new(screen.game, "Select sprite", items, {
+      onChoose = function(c)
+        screen.game.stack:pop()
+        if screen.undo then screen.undo:capture(screen.def) end
+        ent.sprite = c.value; screen.mapChanged = true
+        for i, sid in ipairs(screen.spriteList or {}) do
+          if sid == c.value then screen.selectedBlock = i; break end
+        end
+        EntityEditor.refreshMenuItems(screen, kind, ent)
+      end,
+    })
+    screen.game.stack:push(box)
   elseif field == "destWarp" then
   local items = {}
 
@@ -366,6 +443,7 @@ function EntityEditor.editField(screen, kind, ent, field)
     end)
 
     local box = screen.mod.ui.ListMenu.new(screen.game, "Select Destination Map", items, {
+      qePage = true,
       onChoose = function(c)
         if screen.undo then
           screen.undo:capture(screen.def)
@@ -413,6 +491,23 @@ function EntityEditor.startMoving(screen, kind, ent)
   else
     screen.entityMovingOrig = { x = ent.x, y = ent.y }
   end
+end
+
+-- Shows a picker when creating a new entity on an empty tile in ENT mode.
+function EntityEditor.showCreatePicker(screen)
+  local items = {
+    { label = "Warp", value = "warp" },
+    { label = "Object", value = "object" },
+    { label = "Sign", value = "sign" },
+    { label = "Connection", value = "connection" },
+  }
+  local menu = screen.mod.ui.ListMenu.new(screen.game, "Create entity", items, {
+    onChoose = function(c)
+      screen.game.stack:pop()
+      EntityEditor.addEntity(screen, c.value)
+    end,
+  })
+  screen.game.stack:push(menu)
 end
 
 -- Shows a type picker when creating a new object on an empty tile.

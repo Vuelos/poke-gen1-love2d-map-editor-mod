@@ -8,19 +8,31 @@ local BLOCK_PX = Common.BLOCK_PX
 local Camera = {}
 
 function Camera.clampScroll(self)
-  local vw = 160; local palW = self.showPalette and 40 or 0; local mapViewW = vw - palW
-  local viewW = mapViewW; local viewH = 136
-  local cellSpan = (self.mode == Common.MODES.BLOCKS) and 2 or self.brushSize
+  local vw, vh = require("src.render.Renderer"):uiSize()
+  local palW = self.showPalette and Common.PAL_W or 0
+  local viewW = vw - palW
+  local viewH = vh - 8
+  local cellSpan = (self.mode == Common.MODES.MAP) and 2 or self.brushSize
   local size = cellSpan * CELL_PX
   local tx = self.cursorBx * CELL_PX; local ty = self.cursorBy * CELL_PX
   if tx < self.scrollX then self.scrollX = tx end
   if tx + size > self.scrollX + viewW then self.scrollX = tx + size - viewW end
   if ty < self.scrollY then self.scrollY = ty end
   if ty + size > self.scrollY + viewH then self.scrollY = ty + size - viewH end
-  local minScrollX = -CELL_PX * 16
-  local minScrollY = -CELL_PX * 16
-  local maxScrollX = math.max(minScrollX, self.mapW - viewW + CELL_PX * 16)
-  local maxScrollY = math.max(minScrollY, self.mapH - viewH + CELL_PX * 16)
+  -- The scrollable world is the edited map plus everything connected to
+  -- it, so seams (and their strips) stay reachable in MAP mode.
+  local minX, minY = 0, 0
+  local maxX, maxY = self.mapW, self.mapH
+  for _, nb in ipairs(self.neighbors or {}) do
+    minX = math.min(minX, nb.ox)
+    minY = math.min(minY, nb.oy)
+    maxX = math.max(maxX, nb.ox + nb.def.width * BLOCK_PX)
+    maxY = math.max(maxY, nb.oy + nb.def.height * BLOCK_PX)
+  end
+  local minScrollX = minX - CELL_PX * 16
+  local minScrollY = minY - CELL_PX * 16
+  local maxScrollX = math.max(minScrollX, maxX - viewW + CELL_PX * 16)
+  local maxScrollY = math.max(minScrollY, maxY - viewH + CELL_PX * 16)
   self.scrollX = math.max(minScrollX, math.min(self.scrollX, maxScrollX))
   self.scrollY = math.max(minScrollY, math.min(self.scrollY, maxScrollY))
 end
