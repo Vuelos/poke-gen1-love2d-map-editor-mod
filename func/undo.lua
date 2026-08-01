@@ -1,14 +1,15 @@
 -- In-memory undo/redo system for the map editor.
--- Stores snapshots of map state (blocks, warps, objects, signs, dimensions)
--- before each edit operation.  Caller must invoke capture() BEFORE making
--- changes, then undo()/redo() to walk the stack.
+-- Supports both full snapshots (backward compatible) and
+-- delta-based snapshots for memory efficiency on large maps.
+-- Delta snapshots store only changed block indices with their
+-- old and new values, while still deep-copying entities and
+-- dimensions as full snapshots.
 
 local Undo = {}
 Undo.__index = Undo
 
 local MAX_UNDO = 50
 
--- Deep-copies a table value for snapshot storage.
 local function deepCopy(t)
   if type(t) ~= "table" then return t end
   local out = {}
@@ -16,7 +17,6 @@ local function deepCopy(t)
   return out
 end
 
--- Creates a new undo stack.
 function Undo.new()
   return setmetatable({
     _undoStack = {},
@@ -24,15 +24,11 @@ function Undo.new()
   }, Undo)
 end
 
--- Captures a snapshot of the current map definition state.
--- Must be called BEFORE any mutation so the snapshot reflects the
--- pre-edit state.  shiftL/shiftT (blocks the original content was shifted
--- by, expandShiftL/T) are recorded when supplied so undo/redo can restore
--- the editor's block-revert mapping along with the data.  mapId tags the
--- snapshot with the map it belongs to: nil for the edited map, the map id
--- for a connected map painted across a seam, so undo/redo re-apply each
--- step to the right def.
-function Undo:capture(def, shiftL, shiftT, mapId)
+-- Captures a full snapshot of the map definition state.
+-- Must be called BEFORE any mutation.  `recip` (when given) is a table of
+-- mapId -> connections used to restore connected maps' reciprocal connection
+-- offsets when a map expand is undone.
+function Undo:captureFull(def, shiftL, shiftT, mapId, recip)
   table.insert(self._undoStack, {
     blocks      = deepCopy(def.blocks),
     warps       = deepCopy(def.warps),
@@ -45,15 +41,55 @@ function Undo:capture(def, shiftL, shiftT, mapId)
     shiftL      = shiftL,
     shiftT      = shiftT,
     mapId       = mapId,
+    recip       = recip,
+    _full = true,
   })
   if #self._undoStack > MAX_UNDO then
     table.remove(self._undoStack, 1)
   end
-  -- Discard any redo history since a new change invalidates it.
   self._redoStack = {}
 end
 
-local function snapshotOf(def, shiftL, shiftT, mapId)
+-- Captures a delta snapshot: only stores changed block indices
+-- with their old and new values.  Caller must pass the old values
+-- (pre-mutation) and the changed indices.  Entities and dimensions
+-- are still deep-copied in full.
+function Undo:captureDelta(def, shiftL, shiftT, mapId, changedIndices, oldValues)
+  local blockDelta = {}
+  for i, idx in ipairs(changedIndices) do
+    blockDelta[idx] = { old = oldValues[i], new = def.blocks[idx] }
+  end
+  table.insert(self._undoStack, {
+    blocks      = blockDelta,
+    warps       = deepCopy(def.warps),
+    objects     = deepCopy(def.objects),
+    signs       = deepCopy(def.signs),
+    connections = deepCopy(def.connections),
+    width       = def.width,
+    height      = def.height,
+    borderBlock = def.borderBlock,
+    shiftL      = shiftL,
+    shiftT      = shiftT,
+    mapId       = mapId,
+    _full = false,
+  })
+  if #self._undoStack > MAX_UNDO then
+    table.remove(self._undoStack, 1)
+  end
+  self._redoStack = {}
+end
+
+-- Backward-compatible capture: if changedIndices is provided, uses
+-- delta mode; otherwise uses full snapshot mode.
+function Undo:capture(def, shiftL, shiftT, mapId, changedIndices, oldValues)
+  if changedIndices then
+    self:captureDelta(def, shiftL, shiftT, mapId, changedIndices, oldValues)
+  else
+    self:captureFull(def, shiftL, shiftT, mapId)
+  end
+end
+
+local function snapshotOf(def, shiftL, shiftT, mapId, recip)
   return {
     blocks      = deepCopy(def.blocks),
     warps       = deepCopy(def.warps),
@@ -66,13 +102,13 @@ local function snapshotOf(def, shiftL, shiftT, mapId)
     shiftL      = shiftL,
     shiftT      = shiftT,
     mapId       = mapId,
+    recip       = recip,
+    _full = true,
   }
 end
 
--- Applies a snapshot's fields back onto the map definition.
-local function apply(def, snapshot)
+local function applyFull(def, snapshot)
   for i, v in ipairs(snapshot.blocks) do def.blocks[i] = v end
-  -- Truncate any extra blocks left over from a previous expansion.
   for i = #snapshot.blocks + 1, #def.blocks do def.blocks[i] = nil end
   def.warps       = deepCopy(snapshot.warps)
   def.objects     = deepCopy(snapshot.objects)
@@ -83,42 +119,87 @@ local function apply(def, snapshot)
   def.borderBlock = snapshot.borderBlock
 end
 
--- Restores the previous snapshot and returns it, or returns nil if there
--- is nothing to undo.  shiftL/shiftT carry the current shift into the redo
--- snapshot; the popped snapshot's own shift fields restore expandShiftL/T.
--- mapId tags the pushed redo snapshot with the def it belongs to (nil for
--- the edited map) so a later redo re-applies to the same map.
-function Undo:undo(def, shiftL, shiftT, mapId)
+local function applyDelta(def, snapshot)
+  for idx, vals in pairs(snapshot.blocks) do
+    def.blocks[idx] = vals.old
+  end
+  def.warps       = deepCopy(snapshot.warps)
+  def.objects     = deepCopy(snapshot.objects)
+  def.signs       = deepCopy(snapshot.signs)
+  def.connections = deepCopy(snapshot.connections)
+  def.width       = snapshot.width
+  def.height      = snapshot.height
+  def.borderBlock = snapshot.borderBlock
+end
+
+local function applyRedoDelta(def, snapshot)
+  for idx, vals in pairs(snapshot.blocks) do
+    def.blocks[idx] = vals.new
+  end
+  def.warps       = deepCopy(snapshot.warps)
+  def.objects     = deepCopy(snapshot.objects)
+  def.signs       = deepCopy(snapshot.signs)
+  def.connections = deepCopy(snapshot.connections)
+  def.width       = snapshot.width
+  def.height      = snapshot.height
+  def.borderBlock = snapshot.borderBlock
+end
+
+function Undo:undo(def, shiftL, shiftT, mapId, recip)
   if #self._undoStack == 0 then return nil end
-  table.insert(self._redoStack, snapshotOf(def, shiftL, shiftT, mapId))
   local snap = table.remove(self._undoStack)
-  apply(def, snap)
+  local redoSnap = snapshotOf(def, shiftL, shiftT, mapId, recip)
+  redoSnap._full = snap._full
+  if snap._full then
+    redoSnap.blocks = deepCopy(def.blocks)
+  else
+    local blockDelta = {}
+    for idx, vals in pairs(snap.blocks) do
+      blockDelta[idx] = { old = vals.new, new = vals.old }
+    end
+    redoSnap.blocks = blockDelta
+  end
+  table.insert(self._redoStack, redoSnap)
+  if snap._full then
+    applyFull(def, snap)
+  else
+    applyDelta(def, snap)
+  end
   return snap
 end
 
--- Restores the next snapshot after an undo and returns it, or returns nil
--- if there is nothing to redo.
-function Undo:redo(def, shiftL, shiftT, mapId)
+function Undo:redo(def, shiftL, shiftT, mapId, recip)
   if #self._redoStack == 0 then return nil end
-  table.insert(self._undoStack, snapshotOf(def, shiftL, shiftT, mapId))
   local snap = table.remove(self._redoStack)
-  apply(def, snap)
+  local undoSnap = snapshotOf(def, shiftL, shiftT, mapId, recip)
+  undoSnap._full = snap._full
+  if snap._full then
+    undoSnap.blocks = deepCopy(def.blocks)
+  else
+    local blockDelta = {}
+    for idx, vals in pairs(snap.blocks) do
+      blockDelta[idx] = { old = vals.old, new = vals.new }
+    end
+    undoSnap.blocks = blockDelta
+  end
+  table.insert(self._undoStack, undoSnap)
+  if snap._full then
+    applyFull(def, snap)
+  else
+    applyRedoDelta(def, snap)
+  end
   return snap
 end
 
--- The undo or redo stack, for peek-ahead (which map does the next step
--- belong to?).
 function Undo:stack(kind)
   if kind == "redo" then return self._redoStack end
   return self._undoStack
 end
 
--- Returns true if at least one undo step is available.
 function Undo:canUndo()
   return #self._undoStack > 0
 end
 
--- Returns true if at least one redo step is available.
 function Undo:canRedo()
   return #self._redoStack > 0
 end

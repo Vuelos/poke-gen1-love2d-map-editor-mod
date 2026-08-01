@@ -1,31 +1,29 @@
 local Common = require("mods.map_editor.func.common")
+local Palette = require("mods.map_editor.scene.palette")
 local MODES = Common.MODES
 
 local EntityEditor = {}
 
 local function resolveText(data, mapId, textConst)
   if not data or not data.text_pointers or not data.text then return textConst end
-
   local pointers = data.text_pointers[mapId]
   if not pointers then return textConst end
-
   local entry = pointers[textConst]
   if not entry then return textConst end
 
   local resolved = nil
-  if entry.text then
+  if entry.text and data.text then
     resolved = data.text[entry.text]
   end
-
-  if not resolved and entry.label then
+  if not resolved and entry.label and data.text then
     resolved = data.text["_" .. entry.label]
   end
 
+  local content = ""
   if type(resolved) == "string" then
-    return resolved:gsub("[\n\f\v\r]", " "):gsub("%s+", " "):sub(1, 30)
+    content = resolved:gsub("[\n\f\v\r]", " "):gsub("%s+", " ")
   end
-
-  return textConst
+  return content ~= "" and content or textConst
 end
 
 local function objectType(ent)
@@ -171,7 +169,7 @@ function EntityEditor.buildItems(screen, kind, ent)
     local otype = objectType(ent)
     local items = {
       { label = ("Move (%d,%d)"):format(ent.x, ent.y), value = "move" },
-      { label = ("Sprite: %s"):format(ent.sprite or "NONE"), value = "sprite" },
+      { label = ("Sprite: Change"), value = "sprite" },
     }
     if otype == "item" then
       table.insert(items, { label = ("Item: %s"):format(ent.item or "NONE"), value = "item" })
@@ -267,7 +265,27 @@ function EntityEditor.editEntity(screen, kind, ent)
       if item.value == "move" then
         screen.game.stack:pop()
       end
-      EntityEditor.editField(screen, kind, ent, item.value)
+       if item.value == "sprite" then
+         -- Enter sprite picker mode: the palette gains focus and its cursor
+         -- is parked on the entity's current sprite.  WASD/arrows move the
+         -- cursor (scrolling the page so every sprite stays reachable),
+         -- Enter confirms the change, Escape cancels.
+         local currentSprite = ent.sprite or ""
+         local itemIndex = 1
+         for i, sid in ipairs(screen.spriteList or {}) do
+           if sid == currentSprite then itemIndex = i; break end
+         end
+         screen.selectedBlock = itemIndex
+         Palette.focus(screen)
+         screen._spritePicker = {
+          ent = ent,
+          kind = kind,
+          origSprite = currentSprite,
+        }
+        screen.game.stack:pop()
+      else
+        EntityEditor.editField(screen, kind, ent, item.value)
+      end
     end,
   })
   screen._entityEditMenu = menu

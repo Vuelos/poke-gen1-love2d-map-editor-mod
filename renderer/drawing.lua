@@ -5,10 +5,8 @@ local Common = require("mods.map_editor.func.common")
 local MODES = Common.MODES
 local MODE_NAMES = { "MAP", "ENT", "ENC" }
 local CELL_PX = 16
-local TILE_PX = 8
 local BLOCK_PX = 32
-local PAL_BLOCK_SIZE = 32
-local PAL_GAP = 4
+local PaletteRenderer = require("mods.map_editor.renderer.palette")
 
 local Drawing = {}
 
@@ -104,6 +102,8 @@ function Drawing.drawEntityMarkers(screen)
     local ex = ent.x * CELL_PX - screen.scrollX
     local ey = ent.y * CELL_PX - screen.scrollY
     local spriteId = ent.sprite
+    local isSelectedSprite = screen._spritePicker and screen._spritePicker.ent == ent and screen._spritePicker.kind == "object"
+    
     if spriteId and screen.data.sprites[spriteId] then
       if not screen._spriteRenderers then screen._spriteRenderers = {} end
       if not screen._spriteRenderers[spriteId] then
@@ -115,6 +115,10 @@ function Drawing.drawEntityMarkers(screen)
       end
       local sr = screen._spriteRenderers[spriteId]
       if sr then
+        if isSelectedSprite then
+          love.graphics.setColor(1, 1, 0, 0.9)
+          love.graphics.rectangle("line", ex - 2, ey - 2, 20, 20)
+        end
         sr:draw(ent.x * 16, ent.y * 16, screen.scrollX, screen.scrollY, "down", 0, false)
       else
         love.graphics.setColor(1, 0.4, 0.2, 0.7)
@@ -230,131 +234,58 @@ function Drawing.drawCursor(screen)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
--- Draws the palette panel on the right side of the screen.
--- In ENT mode, shows sprite previews; otherwise shows blocks.
+-- Draws the palette panel on the right side of the screen.  Delegates to
+-- the palette renderer (blocks in a 3-column grid, sprites in 2 columns,
+-- plus the focus cursor when the palette has input focus).
 function Drawing.drawPalette(screen, panelX)
-  if screen.mode == MODES.ENT then
-    Drawing.drawSpritePalette(screen, panelX)
-    return
-  elseif screen.mode == MODES.ENC then return end
-  local x, y = panelX + 4, 10
-  local size = PAL_BLOCK_SIZE
-  local r = screen.map.renderer
-  local image = r.image
-  local quads = r.quads
-  local vw, vh = viewSize()
-
-  love.graphics.setColor(0.1, 0.1, 0.1, 0.85)
-  love.graphics.rectangle("fill", panelX, 0, vw - panelX, vh)
-  love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
-  love.graphics.rectangle("line", panelX, 0, vw - panelX, vh)
-
-    local cols = 2
-    local rowPitch = size + 8
-    local visible = math.max(1, math.floor((vh - 18) / rowPitch))
-    local perPage = visible * cols
-    local selPos = 0
-    for p_i = 1, #screen.paletteList do
-      if screen.paletteList[p_i] == screen.selectedBlock then
-        selPos = p_i
-        break
-      end
-    end
-    if selPos > 0 then
-      if selPos < screen.paletteOffset + 1 then
-        screen.paletteOffset = math.max(0, selPos - 1)
-      elseif selPos > screen.paletteOffset + perPage then
-        screen.paletteOffset = math.max(0, selPos - perPage)
-      end
-    end
-    for i = 1, perPage do
-      local idx = screen.paletteOffset + i
-      if idx > #screen.paletteList then break end
-      local blockId = screen.paletteList[idx]
-      local row = math.floor((i - 1) / cols)
-      local col = (i - 1) % cols
-      local px = x + col * (size + PAL_GAP)
-      local py = y + row * rowPitch
-      local block = screen.tileset.blocks[blockId + 1]
-      if block then
-        for r2 = 0, 3 do
-          for c2 = 0, 3 do
-            local ci = r2 * 4 + c2 + 1
-            local tile = block[ci]
-            local remap = screen.map.renderer and screen.map.renderer.aliasMap and screen.map.renderer.aliasMap[blockId]
-            if remap and remap[ci - 1] then tile = remap[ci - 1] end
-            local quad = quads[tile]
-            if quad then
-              love.graphics.setColor(1, 1, 1, 1)
-              love.graphics.draw(image, quad, px + c2 * TILE_PX, py + r2 * TILE_PX)
-            end
-          end
-        end
-        if blockId == screen.selectedBlock then
-          love.graphics.setColor(1, 0, 0, 0.6)
-          love.graphics.rectangle("line", px - 1, py - 1, size + 2, size + 2)
-          love.graphics.setColor(1, 1, 1, 1)
-        end
-        love.graphics.setColor(0.8, 0.8, 0.8, 1)
-        screen.font.draw(tostring(blockId), px, py + size)
-        love.graphics.setColor(1, 1, 1, 1)
-      end
-    end
+  if screen.mode == MODES.ENC then return end
+  PaletteRenderer.draw(screen, panelX)
 end
 
--- Draws the sprite palette panel in ENT mode.
--- Shows sprite previews in 4 columns, auto-scrolling to keep the selected
--- sprite visible.
-function Drawing.drawSpritePalette(screen, panelX)
-  local list = screen.spriteList
-  if not list or #list == 0 then return end
-  local sel = screen.selectedBlock
+
+-- Renders the full map editor scene.  Calls all sub-drawing
+-- functions in the correct order: backdrop, map, grid, entities,
+-- cursor, palette, mode bar, coordinates, and help overlay.
+function Drawing.drawMapEditor(screen)
+  local renderer = screen.map.renderer
   local vw, vh = viewSize()
+  if not renderer then
+    Drawing.drawError(screen)
+    return
+  end
 
-  love.graphics.setColor(0.1, 0.1, 0.1, 0.85)
-  love.graphics.rectangle("fill", panelX, 0, vw - panelX, vh)
-  love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
-  love.graphics.rectangle("line", panelX, 0, vw - panelX, vh)
+  screen.viewW, screen.viewH = vw, vh
+  local palW = screen.showPalette and screen.mode ~= MODES.ENC and PAL_W or 0
+  local mapViewW = vw - palW
+  local viewH = vh - 8
 
-  local rows = math.max(4, math.floor((vh - 18) / 20))
-  local cols = 4
-  local perPage = rows * cols
-  local pageStart = math.floor((sel - 1) / perPage) * perPage
+  Drawing.drawBackdrop(screen)
 
-  for i = 1, perPage do
-    local idx = pageStart + i
-    if idx > #list then break end
-    local spriteId = list[idx]
-    local row = math.floor((i - 1) / cols)
-    local col = (i - 1) % cols
-    local px = panelX + 4 + col * 18
-    local py = 10 + row * 20
+  love.graphics.setScissor(0, 8, mapViewW, viewH)
+  Drawing.drawMap(screen)
+  love.graphics.setScissor(0, 8, mapViewW, viewH)
+  Drawing.drawGrid(screen)
 
-    -- Draw sprite preview
-    if not screen._spriteRenderers then screen._spriteRenderers = {} end
-    if not screen._spriteRenderers[spriteId] then
-      local def = screen.data and screen.data.sprites[spriteId]
-      if def then
-        screen._spriteRenderers[spriteId] =
-          require("src.render.SpriteRenderer").new(def, spriteId .. "_editor")
-      end
-    end
-    local sr = screen._spriteRenderers[spriteId]
-    if sr then
-      love.graphics.setColor(1, 1, 1, 1)
-      sr:draw(px, py + 4, 0, 0, "down", 0, false)
-    else
-      love.graphics.setColor(1, 0.4, 0.2, 0.7)
-      love.graphics.rectangle("fill", px, py, 16, 16)
-    end
+  if screen.mode == MODES.ENT then
+    Drawing.drawEntityMarkers(screen)
+  end
+  -- The map cursor stays visible at all times; TAB only moves input focus
+  -- to the palette cursor, it never hides the map cursor.
+  Drawing.drawCursor(screen)
 
-    -- Highlight selected
-    if idx == sel then
-      love.graphics.setColor(1, 0, 0, 0.6)
-      love.graphics.rectangle("line", px - 1, py - 1, 18, 18)
-      love.graphics.setColor(1, 1, 1, 1)
-    end
+  Drawing.drawNewMapPreview(screen)
 
+  love.graphics.setScissor()
+
+  if screen.showPalette then Drawing.drawPalette(screen, mapViewW) end
+
+  Drawing.drawModeBar(screen)
+  Drawing.drawCoordinates(screen)
+
+  if screen._newMapState and screen._newMapState.editField then screen:drawNewMapDialog() end
+
+  if screen.showHelp then
+    Drawing.drawHelp(screen)
   end
 end
 
@@ -424,12 +355,13 @@ function Drawing.drawHelp(screen)
     "R  Revert block",
     "F  Copy cursor block",
     "G  Toggle grid",
-    "Tab  Palette",
+    "Tab  Focus palette",
+    "WASD  Palette cursor",
     "H  Toggle help",
-    "CtrlZ Undo  CtrlY",
-    "CtrlS Save  CtrlE",
-    "Move: Arrows/Ent",
-    "ENT: all entities",
+    "CtrlZ Undo / CtrlY Redo",
+    "CtrlS Save on current save",
+    "CtrlE Export to mod folder",
+    "CtrlI Import from mod folder",
     "Esc  Close editor",
   }
   for i, line in ipairs(lines) do
@@ -438,4 +370,63 @@ function Drawing.drawHelp(screen)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+-- Draws an error fallback when the map renderer is unavailable.
+function Drawing.drawError(screen)
+  local vw, vh = viewSize()
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.rectangle("fill", 0, 0, vw, vh)
+  love.graphics.setColor(1, 1, 1, 1)
+  screen.font.draw("MAP EDITOR", 40, 30)
+  screen.font.draw(screen.mapId, 40, 50)
+end
+
+-- Draws an opaque black backdrop covering the full canvas.
+function Drawing.drawBackdrop(screen)
+  local vw, vh = viewSize()
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.rectangle("fill", 0, 0, vw, vh)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- Draws a green semi-transparent preview rectangle for a new map
+-- being laid out, with a green border.  The preview is positioned
+-- relative to the edited map's bounds and offset by the current
+-- scroll position.
+function Drawing.drawNewMapPreview(screen)
+  local s = screen._newMapState
+  if not s or not s.showPreview then return end
+  local bw = screen.def.width * 32
+  local bh = screen.def.height * 32
+  local pw = s.width * 32
+  local ph = s.height * 32
+  local px, py
+  if s.dir == "N" then
+    px = (bw - pw) / 2; py = -ph
+  elseif s.dir == "S" then
+    px = (bw - pw) / 2; py = bh
+  elseif s.dir == "E" then
+    px = bw; py = (bh - ph) / 2
+  else
+    px = -pw; py = (bh - ph) / 2
+  end
+  local sx, sy = screen.scrollX, screen.scrollY
+  love.graphics.setColor(0, 1, 0, 0.35)
+  love.graphics.rectangle("fill", px - sx, py - sy, pw, ph)
+  love.graphics.setColor(0, 1, 0, 0.8)
+  love.graphics.rectangle("line", px - sx, py - sy, pw, ph)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- Draws the cursor coordinates and an unsaved-changes marker at
+-- the bottom-left of the screen.
+function Drawing.drawCoordinates(screen)
+  local vw, vh = viewSize()
+  love.graphics.setColor(0.6, 0.6, 0.6, 1)
+  screen.font.draw(("%d,%d"):format(screen.cursorBx, screen.cursorBy), 0, vh)
+  if screen.mapChanged then
+    love.graphics.setColor(1, 0.8, 0.2, 1)
+    screen.font.draw("!", 50, vh)
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
 return Drawing

@@ -3,11 +3,15 @@
 -- system, and provides helpers for export and application.
 
 local Common = require("mods.map_editor.func.common")
+local SaveSerializer = require("src.core.SaveSerializer")
 local Save = {}
 
 local KEY = "map_editor_patches"
 local ENC_KEY = "map_editor_encounter_patches"
 local CONN_KEY = "map_editor_connection_patches"
+-- Bulk export/import target: a single file in a map_edits/ subfolder of
+-- the mod source, holding all three patch buckets at once.
+local EXPORT_REL = "map_edits/patches.lua"
 local tablesEqual = Common.tablesEqual
 
 -- Builds a minimal patch containing only the fields that differ between
@@ -184,6 +188,125 @@ function Save.writeFile(mapId, luaContent)
   love.filesystem.createDirectory("edited_maps")
   love.filesystem.write(path, luaContent)
   return love.filesystem.getSaveDirectory() .. "/" .. path
+end
+
+-- ------- bulk export/import (mods/<mod>/map_edits/patches.lua)
+
+-- Game source root: the folder that holds the mods/ tree (the directory
+-- passed to `love <gamedir>` in a source run).  Exports go there so the
+-- edits land in the repo, where they can be committed and shared.
+local function sourceRoot()
+  if not (love and love.filesystem) then return nil end
+  if love.filesystem.getSource then
+    local src = love.filesystem.getSource()
+    if src and src ~= "" then return src end
+  end
+  if love.filesystem.getSourceBaseDirectory then
+    local sbd = love.filesystem.getSourceBaseDirectory()
+    if sbd and sbd ~= "" then return sbd end
+  end
+  return nil
+end
+
+local SEP = package.config:sub(1, 1)
+local mkdirFn
+
+-- Windowless directory creation for an absolute path (FFI syscall with an
+-- os.execute fallback), so an export never flashes a console window.
+local function mkdir(path)
+  if mkdirFn == nil then
+    mkdirFn = false
+    local ok, ffi = pcall(require, "ffi")
+    if ok then
+      if ffi.os == "Windows" then
+        pcall(ffi.cdef,
+          "int CreateDirectoryA(const char *lpPathName, void *lpSecurityAttributes);")
+        local ok2, fn = pcall(function() return ffi.C.CreateDirectoryA end)
+        if ok2 then mkdirFn = function(p) pcall(fn, p, nil) end end
+      else
+        pcall(ffi.cdef, "int mkdir(const char *pathname, unsigned int mode);")
+        local ok2, fn = pcall(function() return ffi.C.mkdir end)
+        if ok2 then mkdirFn = function(p) pcall(fn, p, 493) end end
+      end
+    end
+  end
+  if mkdirFn then return mkdirFn(path) end
+  if SEP == "\\" then
+    os.execute('mkdir "' .. path .. '" 2>nul')
+  else
+    os.execute('mkdir -p "' .. path .. '" 2>/dev/null')
+  end
+end
+
+-- Creates every parent directory of an absolute forward-slash path.
+local function ensureParents(absPath)
+  local cur = ""
+  for part in absPath:gmatch("[^/]+") do
+    cur = cur .. part
+    mkdir(cur)
+    cur = cur .. "/"
+  end
+end
+
+-- Writes a file on the real filesystem (love.filesystem.write only reaches
+-- the save directory, so the game source is written with raw io instead).
+-- Returns true, or false + an error message.
+local function writeSourceFile(absPath, content)
+  local dir = absPath:match("^(.*)/[^/]+$")
+  if dir then ensureParents(dir) end
+  local f, err = io.open(absPath, "wb")
+  if not f then return false, err or ("cannot open " .. absPath) end
+  f:write(content)
+  f:close()
+  return true
+end
+
+-- Collects every saved map edit (map, encounter and connection patches)
+-- into one table keyed by bucket.
+function Save.allEdits(mod)
+  return {
+    patches = Save.getPatches(mod),
+    encounters = Save.getEncounterPatches(mod),
+    connections = Save.getConnectionPatches(mod),
+  }
+end
+
+-- Absolute filesystem path of the mod's map_edits/ export file.
+function Save.exportPath(mod)
+  local root = sourceRoot()
+  if not root then return nil end
+  return root .. "/" .. mod.path .. "/" .. EXPORT_REL
+end
+
+-- Writes every saved map edit to the mod's map_edits/patches.lua in the
+-- game source folder.  Returns the absolute path, or nil + an error message.
+function Save.exportAll(mod)
+  local edits = Save.allEdits(mod)
+  if not (next(edits.patches) or next(edits.encounters) or next(edits.connections)) then
+    return nil, "no saved map edits to export"
+  end
+  local path = Save.exportPath(mod)
+  if not path then return nil, "could not locate the game source folder" end
+  local lua = SaveSerializer.encode(edits)
+  local ok, err = pcall(writeSourceFile, path, lua)
+  if not ok then return nil, tostring(err) end
+  return path
+end
+
+-- Loads mods/<mod>/map_edits/patches.lua from the game source and writes
+-- the decoded edits into the mod save buckets.  Returns the edits table,
+-- or nil + an error message when the file is missing or invalid.
+function Save.importAll(mod)
+  local rel = mod.path .. "/" .. EXPORT_REL
+  local raw = love and love.filesystem and love.filesystem.read
+    and love.filesystem.read(rel)
+  if not raw then return nil, "map_edits/patches.lua not found" end
+  local edits, err = SaveSerializer.decode(raw)
+  if not edits then return nil, tostring(err) end
+  if edits.patches then mod.save:set(KEY, edits.patches) end
+  if edits.encounters then mod.save:set(ENC_KEY, edits.encounters) end
+  if edits.connections then mod.save:set(CONN_KEY, edits.connections) end
+  return edits
 end
 
 return Save

@@ -33,8 +33,8 @@ return function(mod)
   mod.content.screens:register(SCREEN, {
     new = function(game, mapId)
       mapId = mapId or currentMapId(game) or "PALLET_TOWN"
-      local EditorScreen = require("mods.map_editor.scene.editor_screen")
-      local screen = EditorScreen.new(mod, game, mapId)
+       local MapEditor = require("mods.map_editor.scene.map_editor")
+       local screen = MapEditor.new(mod, game, mapId)
       if not screen then
         mod.log:error("Could not create editor for map %s", mapId)
         local s = { game = game, isOpaque = true }

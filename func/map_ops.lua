@@ -3,6 +3,7 @@
 
 local Fill = require("mods.map_editor.func.fill")
 local Common = require("mods.map_editor.func.common")
+local Snapshot = require("mods.map_editor.func.snapshot")
 local CELL_PX = Common.CELL_PX
 local BLOCK_PX = Common.BLOCK_PX
 
@@ -17,9 +18,12 @@ local BACK = { north = "south", south = "north", east = "west", west = "east" }
 -- vanilla reciprocal invariant is `back.offset == -offset` -- so when this
 -- map's offsets shift, every connected map's return connection must mirror
 -- the new value or a round-trip seam crossing lands at the wrong cell.
--- Applies the fix to the live data and persists it as a connections-only
--- patch on each affected map so it survives a reload.
-function MapOps.reconcileReciprocalConnections(self)
+-- Applies the fix to the live data immediately (so the editor shows the
+-- adjusted seams); when `persist` is truthy it also writes a connections-only
+-- patch for each affected map so the fix survives a reload.  The affected
+-- maps are always marked dirty so a later save persists their connection
+-- diff even when they were reconciled live during an expand.
+function MapOps.reconcileReciprocalConnections(self, persist)
   local data = self.data
   if not data or not data.maps then return end
   local def = self.def
@@ -41,10 +45,16 @@ function MapOps.reconcileReciprocalConnections(self)
     end
   end
   if next(changed) then
-    local Save = require("mods.map_editor.func.save")
+    self.neighborDirty = self.neighborDirty or {}
     for otherId in pairs(changed) do
-      Save.updatePatchField(self.mod, otherId, "connections",
-        Common.deepCopy(data.maps[otherId].connections))
+      self.neighborDirty[otherId] = true
+    end
+    if persist then
+      local Save = require("mods.map_editor.func.save")
+      for otherId in pairs(changed) do
+        Save.updatePatchField(self.mod, otherId, "connections",
+          Common.deepCopy(data.maps[otherId].connections))
+      end
     end
   end
 end
@@ -115,6 +125,9 @@ function MapOps.expandMap(self, needL, needR, needT, needB)
   self.cursorBx = self.cursorBx + needL * 2
   self.cursorBy = self.cursorBy + needT * 2
   self.mapChanged = true
+  -- Mirror the shifted strip offsets onto every connected map's reciprocal
+  -- connection now (not on save) so the editor's seams line up immediately.
+  self:reconcileReciprocalConnections()
 end
 
 -- Resolves which map a MAP-mode tile operation anchored at world-cell
@@ -153,101 +166,126 @@ local function rebuildFor(self, mapId)
 end
 
 function MapOps.paintBlock(self)
-  local bs = self.brushSize
-  local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
-  local px0 = self.cursorBx * CELL_PX
-  local py0 = self.cursorBy * CELL_PX
-  local bx0 = math.floor((px0 - ox) / BLOCK_PX)
-  local by0 = math.floor((py0 - oy) / BLOCK_PX)
-  local bx1 = math.floor((px0 + (bs - 1) * CELL_PX - ox) / BLOCK_PX)
-  local by1 = math.floor((py0 + (bs - 1) * CELL_PX - oy) / BLOCK_PX)
+   local bs = self.brushSize
+   local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
+   local px0 = self.cursorBx * CELL_PX
+   local py0 = self.cursorBy * CELL_PX
+   local bx0 = math.floor((px0 - ox) / BLOCK_PX)
+   local by0 = math.floor((py0 - oy) / BLOCK_PX)
+   local bx1 = math.floor((px0 + (bs - 1) * CELL_PX - ox) / BLOCK_PX)
+   local by1 = math.floor((py0 + (bs - 1) * CELL_PX - oy) / BLOCK_PX)
 
-  if mapId == nil then
-    -- The edited map: auto-expand when painting past an edge.
-    local needL = math.max(0, -bx0)
-    local needR = math.max(0, bx1 + 1 - def.width)
-    local needT = math.max(0, -by0)
-    local needB = math.max(0, by1 + 1 - def.height)
+   local shiftL, shiftT = self.expandShiftL, self.expandShiftT
+   local capturedFull = false
 
-    if self.undo then self.undo:capture(def, self.expandShiftL, self.expandShiftT) end
-    if needL > 0 or needR > 0 or needT > 0 or needB > 0 then
-      self:expandMap(needL, needR, needT, needB)
-      bx0 = math.floor(self.cursorBx / 2)
-      by0 = math.floor(self.cursorBy / 2)
-      bx1 = math.floor((self.cursorBx + bs - 1) / 2)
-      by1 = math.floor((self.cursorBy + bs - 1) / 2)
-    end
-  else
-    -- A connected map: paint within its existing bounds (a map is never
-    -- expanded from across a seam), so a brush straddling the seam clips.
-    bx0 = math.max(0, bx0); by0 = math.max(0, by0)
-    bx1 = math.min(bx1, def.width - 1); by1 = math.min(by1, def.height - 1)
-    if bx0 > bx1 or by0 > by1 then return end
-    if self.undo then self.undo:capture(def, nil, nil, mapId) end
-    self.neighborDirty[mapId] = true
-  end
+   if mapId == nil then
+     local needL = math.max(0, -bx0)
+     local needR = math.max(0, bx1 + 1 - def.width)
+     local needT = math.max(0, -by0)
+     local needB = math.max(0, by1 + 1 - def.height)
 
-  local w = def.width
-  for by = by0, by1 do
-    for bx = bx0, bx1 do
-      def.blocks[by * w + bx + 1] = self.selectedBlock
-    end
-  end
-  self.mapChanged = true
-  rebuildFor(self, mapId)
-end
+   if needL > 0 or needR > 0 or needT > 0 or needB > 0 then
+     -- Capture the PRE-expansion state (with pre-expansion shifts and the
+     -- connected maps' reciprocal connections) so Ctrl+Z undoes the expand.
+     local preShiftL, preShiftT = self.expandShiftL or 0, self.expandShiftT or 0
+     local recipBefore = self:snapshotRecipConnections()
+     if self.undo then
+       self.undo:captureFull(def, preShiftL, preShiftT, nil, recipBefore)
+     end
+     self:expandMap(needL, needR, needT, needB)
+     bx0 = math.floor(self.cursorBx / 2)
+     by0 = math.floor(self.cursorBy / 2)
+     bx1 = math.floor((self.cursorBx + bs - 1) / 2)
+     by1 = math.floor((self.cursorBy + bs - 1) / 2)
+     shiftL, shiftT = self.expandShiftL, self.expandShiftT
+     capturedFull = true
+   end
+   else
+     bx0 = math.max(0, bx0); by0 = math.max(0, by0)
+     bx1 = math.min(bx1, def.width - 1); by1 = math.min(by1, def.height - 1)
+     if bx0 > bx1 or by0 > by1 then return end
+   end
+
+   local w = def.width
+   local changedIndices = {}
+   local oldValues = {}
+   for by = by0, by1 do
+     for bx = bx0, bx1 do
+       local idx = by * w + bx + 1
+       changedIndices[#changedIndices + 1] = idx
+       oldValues[#oldValues + 1] = def.blocks[idx]
+       def.blocks[idx] = self.selectedBlock
+     end
+   end
+
+   if self.undo and #changedIndices > 0 and not capturedFull then
+     self.undo:capture(def, shiftL, shiftT, mapId, changedIndices, oldValues)
+   end
+
+   self.mapChanged = true
+   if mapId ~= nil then self.neighborDirty[mapId] = true end
+   rebuildFor(self, mapId)
+ end
 
 function MapOps.revertBlock(self)
-  local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
-  local bx = math.floor((self.cursorBx * CELL_PX - ox) / BLOCK_PX)
-  local by = math.floor((self.cursorBy * CELL_PX - oy) / BLOCK_PX)
+   local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
+   local bx = math.floor((self.cursorBx * CELL_PX - ox) / BLOCK_PX)
+   local by = math.floor((self.cursorBy * CELL_PX - oy) / BLOCK_PX)
 
-  if mapId == nil then
-    local obx = bx - (self.expandShiftL or 0)
-    local oby = by - (self.expandShiftT or 0)
-    if obx >= 0 and obx < self.originalWidth and oby >= 0 and oby < self.originalHeight then
-      local idx = by * def.width + bx + 1
-      if idx >= 1 and idx <= #def.blocks then
-        if self.undo then self.undo:capture(def, self.expandShiftL, self.expandShiftT) end
-        def.blocks[idx] = self.originalBlocks[oby * self.originalWidth + obx + 1]
-        self.mapChanged = true
-        self.map.renderer:rebuild()
-      end
-    end
-    return
-  end
+   if mapId == nil then
+     local snap = self._originalSnapshot
+     if not snap then return end
+     local obx = bx - (self.expandShiftL or 0)
+     local oby = by - (self.expandShiftT or 0)
+     if obx >= 0 and obx < snap.width and oby >= 0 and oby < snap.height then
+       local idx = by * def.width + bx + 1
+       if idx >= 1 and idx <= #def.blocks then
+         local oldVal = def.blocks[idx]
+         local newVal = snap.blocks[oby * snap.width + obx + 1]
+         if oldVal ~= newVal then
+           if self.undo then self.undo:capture(def, self.expandShiftL, self.expandShiftT, nil, {idx}, {oldVal}) end
+           def.blocks[idx] = newVal
+           self.mapChanged = true
+           self.map.renderer:rebuild()
+         end
+       end
+     end
+     return
+   end
 
-  local orig = self.neighborOriginals and self.neighborOriginals[mapId]
-  if not orig then return end
-  local idx = by * def.width + bx + 1
-  if bx >= 0 and bx < def.width and by >= 0 and by < def.height
-     and idx >= 1 and idx <= #def.blocks then
-    if self.undo then self.undo:capture(def, nil, nil, mapId) end
-    def.blocks[idx] = orig.blocks[idx]
-    self.mapChanged = true
-    self.neighborDirty[mapId] = true
-    rebuildFor(self, mapId)
-  end
-end
+   local orig = self.neighborOriginals and self.neighborOriginals[mapId]
+   if not orig then return end
+   local idx = by * def.width + bx + 1
+   if bx >= 0 and bx < def.width and by >= 0 and by < def.height
+      and idx >= 1 and idx <= #def.blocks then
+     local oldVal = def.blocks[idx]
+     local newVal = orig.blocks[idx]
+     if oldVal ~= newVal then
+       if self.undo then self.undo:capture(def, nil, nil, mapId, {idx}, {oldVal}) end
+       def.blocks[idx] = newVal
+       self.mapChanged = true
+       self.neighborDirty[mapId] = true
+       rebuildFor(self, mapId)
+     end
+   end
+ end
 
 function MapOps.floodFill(self)
-  local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
-  local bx = math.floor((self.cursorBx * CELL_PX - ox) / BLOCK_PX)
-  local by = math.floor((self.cursorBy * CELL_PX - oy) / BLOCK_PX)
-  if self.undo then
-    if mapId == nil then
-      self.undo:capture(def, self.expandShiftL, self.expandShiftT)
-    else
-      self.undo:capture(def, nil, nil, mapId)
-    end
-  end
-  local changed = Fill.flood(def, bx, by, self.selectedBlock)
-  if changed > 0 then
-    self.mapChanged = true
-    if mapId ~= nil then self.neighborDirty[mapId] = true end
-    rebuildFor(self, mapId)
-  end
-end
+   local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
+   local bx = math.floor((self.cursorBx * CELL_PX - ox) / BLOCK_PX)
+   local by = math.floor((self.cursorBy * CELL_PX - oy) / BLOCK_PX)
+   local changed, changedIndices, oldValues = Fill.flood(def, bx, by, self.selectedBlock)
+   if changed > 0 then
+     if self.undo then
+       local shiftL, shiftT = nil, nil
+       if mapId == nil then shiftL, shiftT = self.expandShiftL, self.expandShiftT end
+       self.undo:capture(def, shiftL, shiftT, mapId, changedIndices, oldValues)
+     end
+     self.mapChanged = true
+     if mapId ~= nil then self.neighborDirty[mapId] = true end
+     rebuildFor(self, mapId)
+   end
+ end
 
 function MapOps.selectCursorBlock(self)
   local mapId, def, ox, oy = paintTarget(self, self.cursorBx, self.cursorBy)
@@ -282,12 +320,21 @@ function MapOps.restoreSnapshot(self, kind)
   end
   local shiftL, shiftT = self.expandShiftL, self.expandShiftT
   if mapId then shiftL, shiftT = nil, nil end
+  -- Current reciprocal connections, so the inverse step can restore them.
+  local recipNow = self:snapshotRecipConnections()
   local snap = kind == "redo"
-    and self.undo:redo(def, shiftL, shiftT, mapId)
-    or self.undo:undo(def, shiftL, shiftT, mapId)
+    and self.undo:redo(def, shiftL, shiftT, mapId, recipNow)
+    or self.undo:undo(def, shiftL, shiftT, mapId, recipNow)
   if not snap then return end
   if snap.shiftL ~= nil then self.expandShiftL = snap.shiftL end
   if snap.shiftT ~= nil then self.expandShiftT = snap.shiftT end
+  if snap.recip then
+    local data = self.data
+    for otherId, conns in pairs(snap.recip) do
+      local otherDef = data and data.maps and data.maps[otherId]
+      if otherDef then otherDef.connections = Common.deepCopy(conns) end
+    end
+  end
   self.mapW = self.def.width * BLOCK_PX
   self.mapH = self.def.height * BLOCK_PX
   if mapId then
@@ -304,19 +351,7 @@ function MapOps.restoreSnapshot(self, kind)
 end
 
 function MapOps.storeOriginal(self)
-  self.originalBlocks = {}
-  for i, v in ipairs(self.def.blocks) do self.originalBlocks[i] = v end
-  self.originalWidth = self.def.width
-  self.originalHeight = self.def.height
-  self.originalWarps = Common.deepCopy(self.def.warps)
-  self.originalObjects = Common.deepCopy(self.def.objects)
-  self.originalSigns = Common.deepCopy(self.def.signs)
-  self.originalBorder = self.def.borderBlock
-  self.originalTextDefs = Common.deepCopy(self.def.textDefs or {})
-  self.originalConnections = Common.deepCopy(self.def.connections or {})
-  -- Connections on OTHER maps that point back to this one: the expansion
-  -- reconciliation rewrites their return offsets, so snapshot them too to
-  -- restore on unsaved exit.
+  self._originalSnapshot = Snapshot.capture(self.def)
   self.originalRecipConnections = {}
   if self.data and self.data.maps then
     for otherId, otherDef in pairs(self.data.maps) do

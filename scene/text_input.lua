@@ -4,6 +4,7 @@
 -- characters via love.textinput.  Pushes itself onto the game stack.
 
 local TextInput = {}
+local TextInputDialog = require("mods.map_editor.renderer.text_input")
 TextInput.isOpaque = true
 
 -- Opens a text input dialog and pushes it onto the game stack.
@@ -65,18 +66,7 @@ function TextInput:onKeyPressed(key)
 end
 
 function TextInput:draw()
-  local Font = self.font
-  if self.whiteBg then
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.rectangle("fill", 0, 0, 160, 144)
-    love.graphics.setColor(0, 0, 0, 1)
-  else
-    love.graphics.setColor(0.1, 0.1, 0.1, 0.9)
-    love.graphics.rectangle("fill", 0, 0, 160, 144)
-    love.graphics.setColor(1, 1, 1, 1)
-  end
-  Font.draw(self.title, 8, 16)
-  Font.draw(">" .. self.text .. "_", 8, 48)
+  TextInputDialog.draw(self)
 end
 
 return TextInput
