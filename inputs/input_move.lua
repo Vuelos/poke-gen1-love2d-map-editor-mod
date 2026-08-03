@@ -1,6 +1,6 @@
 -- Input handler for entity/connection moving mode.
 
-local InputHelpers = require("mods.map_editor.func.input_helpers")
+local InputHelpers = require("mods.map_editor.inputs.input_helpers")
 local EntityEditor = require("mods.map_editor.scene.entity_editor")
 local Common = require("mods.map_editor.func.common")
 local MODES = Common.MODES

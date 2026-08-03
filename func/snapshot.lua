@@ -8,7 +8,7 @@ local Snapshot = {}
 
 local SNAPSHOT_FIELDS = {
   "blocks", "warps", "objects", "signs",
-  "borderBlock", "width", "height",
+  "borderBlock", "width", "height", "name",
   "textDefs", "connections",
 }
 
@@ -20,6 +20,7 @@ function Snapshot.capture(def)
   snap.width = def.width
   snap.height = def.height
   snap.borderBlock = def.borderBlock
+  snap.name = def.name
   return snap
 end
 
@@ -30,6 +31,7 @@ function Snapshot.restore(def, snap)
   def.width = snap.width
   def.height = snap.height
   def.borderBlock = snap.borderBlock
+  def.name = snap.name
 end
 
 function Snapshot.diff(def, snap)
@@ -42,6 +44,7 @@ function Snapshot.diff(def, snap)
   if def.width ~= snap.width then patch.width = def.width end
   if def.height ~= snap.height then patch.height = def.height end
   if def.borderBlock ~= snap.borderBlock then patch.borderBlock = def.borderBlock end
+  if def.name ~= snap.name then patch.name = def.name end
   return patch
 end
 

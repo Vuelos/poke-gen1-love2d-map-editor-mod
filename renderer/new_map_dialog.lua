@@ -16,9 +16,10 @@ function NewMapDialog.draw(screen)
     return offset + screen.font.width(full) + 8
   end
   local off = 0
+  off = drawField("Name:", s.name or "", false, off)
   off = drawField("W:", tostring(s.width), s.editField == "w", off)
   off = drawField("H:", tostring(s.height), s.editField == "h", off)
-  drawField("Dir:", s.dir, s.editField == "dir", off)
+  if not s.lockDir then drawField("Dir:", s.dir, s.editField == "dir", off) end
   love.graphics.setColor(1, 1, 1, 1)
 end
 

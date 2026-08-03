@@ -26,7 +26,7 @@ local MapEditor = {}
 local function mixin(t, src) for k, v in pairs(src) do t[k] = v end end
 mixin(MapEditor, require("mods.map_editor.func.map_ops"))
 mixin(MapEditor, require("mods.map_editor.func.camera"))
-mixin(MapEditor, require("mods.map_editor.func.events"))
+  mixin(MapEditor, require("mods.map_editor.inputs.events"))
 mixin(MapEditor, require("mods.map_editor.func.new_map"))
 mixin(MapEditor, EditorNeighbors)
 mixin(MapEditor, EditorSession)
@@ -267,6 +267,9 @@ end
 function MapEditor:update()
   TileRenderer.tick(0)
   self:clampScroll()
+  if self._newMapState then
+    require("mods.map_editor.inputs.input_newmap").updateGamepad(self)
+  end
 end
 
 -- Fullscreen canvas: instead of the classic 160x144 GB rectangle, the

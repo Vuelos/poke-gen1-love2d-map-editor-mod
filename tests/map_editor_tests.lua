@@ -209,21 +209,62 @@ function test_textInputRenderer()
   print("TextInputDialog renderer test passed")
 end
 
-function test_all()
-  test_mapEditorRename()
-  test_drawingSceneFunctions()
-  test_drawingDrawMapEditor()
-  test_drawingDrawError()
-  test_drawingDrawBackdrop()
-  test_drawingDrawCoordinates()
-  test_drawingDrawNewMapPreview()
-  test_connectionEditorRenderer()
-  test_textInputRenderer()
+function test_paletteJump()
+  print("Testing Palette.jump +/-10...")
+  local Palette = require("mods.map_editor.scene.palette")
+  local Common = require("mods.map_editor.func.common")
 
-  print("\n=== ALL MAP_EDITOR TESTS PASSED ===")
+  local b = {
+    mode = Common.MODES.MAP,
+    paletteList = {},
+    spriteList = {},
+    selectedBlock = 0,
+    paletteOffset = 0,
+    paletteCursorX = 1, paletteCursorY = 1,
+  }
+  for i = 1, 100 do b.paletteList[i] = i - 1 end
+  Palette.jump(b, 10)
+  if b.paletteCursorY ~= 11 then error("blocks jump 10 rows -> row 11, got " .. b.paletteCursorY) end
+  if b.paletteCursorX ~= 1 then error("blocks jump 10 rows -> col 1, got " .. b.paletteCursorX) end
+  Palette.jump(b, -10)
+  if b.paletteCursorY ~= 1 or b.paletteCursorX ~= 1 then error("blocks jump back to top") end
+  Palette.jump(b, -10)
+  if b.paletteCursorY ~= 1 or b.paletteCursorX ~= 1 then error("blocks clamp at top") end
+  Palette.jump(b, 10000)
+  if b.paletteCursorY ~= math.ceil(100 / 3) then
+    error("blocks clamp at bottom, got row " .. b.paletteCursorY)
+  end
+
+  local s = {
+    mode = Common.MODES.ENT,
+    paletteList = {},
+    spriteList = {},
+    selectedBlock = 1,
+    paletteOffset = 0,
+    paletteCursorX = 1, paletteCursorY = 1,
+  }
+  for i = 1, 100 do s.spriteList[i] = i end
+  Palette.jump(s, 10)
+  if s.paletteCursorY ~= 11 then error("sprites jump 10 rows -> row 11, got " .. s.paletteCursorY) end
+  if s.paletteCursorX ~= 1 then error("sprites jump 10 rows -> col 1, got " .. s.paletteCursorX) end
+  Palette.jump(s, -10)
+  if s.paletteCursorY ~= 1 or s.paletteCursorX ~= 1 then error("sprites jump back to top") end
+  print("Palette.jump test passed")
 end
 
-if not pcall(test_all) then
-  print("\n=== SOME MAP_EDITOR TESTS FAILED ===")
-  os.exit(1)
-end
+-- Each suite exports { name, tests } and is run by test_all.lua.
+return {
+  name = "MAP_EDITOR",
+  tests = {
+    "test_mapEditorRename",
+    "test_paletteJump",
+    "test_drawingSceneFunctions",
+    "test_drawingDrawMapEditor",
+    "test_drawingDrawError",
+    "test_drawingDrawBackdrop",
+    "test_drawingDrawCoordinates",
+    "test_drawingDrawNewMapPreview",
+    "test_connectionEditorRenderer",
+    "test_textInputRenderer",
+  },
+}

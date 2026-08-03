@@ -65,24 +65,22 @@ function EntityEditor.selectedEntity(screen)
       if s.x >= cx0 and s.x < cx1 and s.y >= cy0 and s.y < cy1 then return "sign", s end
     end
     local conns = screen.def.connections or {}
-    local data = screen.data
     local mw = screen.def.width * 2
     local mh = screen.def.height * 2
     for dir, conn in pairs(conns) do
-      local destDef = data and data.maps and data.maps[conn.map]
       local off = (conn.offset or 0) * 2
       local cxo, cyo, cw, ch
       if dir == "north" then
-        cw = destDef and destDef.width * 2 or mw; ch = 4
+        cw = mw; ch = 4
         cxo = off; cyo = -ch
       elseif dir == "south" then
-        cw = destDef and destDef.width * 2 or mw; ch = 4
+        cw = mw; ch = 4
         cxo = off; cyo = mh
       elseif dir == "west" then
-        cw = 4; ch = destDef and destDef.height * 2 or mh
+        cw = 4; ch = mh
         cxo = -cw; cyo = off
       elseif dir == "east" then
-        cw = 4; ch = destDef and destDef.height * 2 or mh
+        cw = 4; ch = mh
         cxo = mw; cyo = off
       else
         cxo = 0; cyo = 0; cw = 0; ch = 0
@@ -122,6 +120,18 @@ local function allEntities(screen)
     out[#out + 1] = { kind = "connection", ent = c, dir = dir, bx = bx, by = by }
   end
   return out
+end
+
+-- True when another object/sign/warp on this map already uses `name`
+-- (excluding `exclude`), so entity names stay unique within a map.
+function EntityEditor.isEntityNameUsed(screen, name, exclude)
+  local def = screen.def
+  for _, arr in ipairs({ def.objects or {}, def.signs or {}, def.warps or {} }) do
+    for _, ent in ipairs(arr) do
+      if ent ~= exclude and ent.name and ent.name == name then return true end
+    end
+  end
+  return false
 end
 
 -- Cycles the selection to the previous/next entity on the map (ENT mode),
@@ -296,15 +306,24 @@ end
 function EntityEditor.editField(screen, kind, ent, field)
   if field == "map" then
     if kind == "connection" then
-      local items = {}
-      for mapId in pairs(screen.game.data.maps or {}) do
+      local items = { { label = "New map...", value = "__new__" } }
+      local maps = {}
+      for mapId in pairs(screen.game.data.maps or {}) do table.insert(maps, mapId) end
+      table.sort(maps)
+      for _, mapId in ipairs(maps) do
         table.insert(items, { label = mapId, value = mapId })
       end
-      table.sort(items, function(a, b) return a.label < b.label end)
       local box = screen.mod.ui.ListMenu.new(screen.game, "Select Map", items, {
         qePage = true,
         onChoose = function(c)
           screen.game.stack:pop()
+          if c.value == "__new__" then
+            screen._pendingConn = {
+              conn = ent, dir = screen._selectedDir or "east", move = false,
+            }
+            screen:newMapDialog(screen._selectedDir)
+            return
+          end
           if screen.undo then screen.undo:capture(screen.def) end
           ent.map = c.value; screen.mapChanged = true
         end,
@@ -371,19 +390,26 @@ function EntityEditor.editField(screen, kind, ent, field)
     screen.game.stack:push(box)
   elseif field == "name" then
     local TextInput = require("mods.map_editor.scene.text_input")
-    local input = TextInput.new(screen.game, {
-      title = "Object name",
-      maxLen = 32,
-      initial = ent.name or "",
-      onDone = function(text)
-        if text and text ~= "" then
-          if screen.undo then screen.undo:capture(screen.def) end
-          ent.name = text; screen.mapChanged = true
-          EntityEditor.refreshMenuItems(screen, kind, ent)
-        end
-      end,
-    })
-    screen.game.stack:push(input)
+    local function open()
+      local input = TextInput.new(screen.game, {
+        title = "Object name",
+        maxLen = 32,
+        initial = ent.name or "",
+        onDone = function(text)
+          if text and text ~= "" then
+            if EntityEditor.isEntityNameUsed(screen, text, ent) then
+              open()
+              return
+            end
+            if screen.undo then screen.undo:capture(screen.def) end
+            ent.name = text; screen.mapChanged = true
+            EntityEditor.refreshMenuItems(screen, kind, ent)
+          end
+        end,
+      })
+      screen.game.stack:push(input)
+    end
+    open()
   elseif field == "movement" then
     local box = screen.mod.ui.ListMenu.new(screen.game, "Movement", {
       { label = "STAY", value = "STAY" }, { label = "WALK", value = "WALK" },
@@ -597,10 +623,51 @@ function EntityEditor.showConnectionDirPicker(screen, existingEnt)
         local conn = { map = screen.mapId, offset = 0 }
         screen.def.connections[dir] = conn
         screen.mapChanged = true
-        -- Enter moving mode so user can position the silhouette on the map
+        -- Ask where the connection should point, then enter moving mode so
+        -- the user can position the silhouette on the map.
         screen._selectedDir = dir
-        EntityEditor.startMoving(screen, "connection", conn)
+        EntityEditor.chooseConnectionDestination(screen, conn, dir)
       end
+    end,
+  })
+  screen.game.stack:push(menu)
+end
+
+-- Asks whether a new connection should point at an existing map or at a
+-- freshly created map, then routes to the matching picker/dialog.
+function EntityEditor.chooseConnectionDestination(screen, conn, dir)
+  local menu = screen.mod.ui.ListMenu.new(screen.game, "Connection destination", {
+    { label = "Existing map", value = "existing" },
+    { label = "Create new map", value = "new" },
+  }, {
+    onChoose = function(c)
+      screen.game.stack:pop()
+      if c.value == "new" then
+        screen._pendingConn = { conn = conn, dir = dir, move = true }
+        screen:newMapDialog(dir)
+      else
+        EntityEditor.chooseExistingMap(screen, conn, dir)
+      end
+    end,
+  })
+  screen.game.stack:push(menu)
+end
+
+-- Lets the user pick an existing map as a connection's destination.
+function EntityEditor.chooseExistingMap(screen, conn, dir)
+  local items = {}
+  for mapId in pairs(screen.data.maps or {}) do
+    table.insert(items, { label = mapId, value = mapId })
+  end
+  table.sort(items, function(a, b) return a.label < b.label end)
+  local menu = screen.mod.ui.ListMenu.new(screen.game, "Select Map", items, {
+    qePage = true,
+    onChoose = function(c)
+      screen.game.stack:pop()
+      conn.map = c.value
+      screen.mapChanged = true
+      screen._selectedDir = dir
+      EntityEditor.startMoving(screen, "connection", conn)
     end,
   })
   screen.game.stack:push(menu)

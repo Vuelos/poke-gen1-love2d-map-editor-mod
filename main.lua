@@ -81,12 +81,18 @@ return function(mod)
           mod.log:warn("F6: no overworld map to edit")
           return
         end
-        -- Number keys: pop sub-menus above editor, forward key to editor
+        -- Number keys: pop sub-menus above editor, forward key to editor.
+        -- A text input on top is exempt: digits typed there are name/sign
+        -- text, not editor mode-switch commands (they also arrive via
+        -- love.textinput, so they'd be swallowed twice otherwise).
         if key >= "1" and key <= "3" and states then
-          for i = #states, 1, -1 do
-            if states[i].screenId == SCREEN_ID then
-              while self.stack:top() ~= states[i] do self.stack:pop() end
-              break
+          local top = self.stack:top()
+          if not (top and top.capturesText) then
+            for i = #states, 1, -1 do
+              if states[i].screenId == SCREEN_ID then
+                while self.stack:top() ~= states[i] do self.stack:pop() end
+                break
+              end
             end
           end
         end

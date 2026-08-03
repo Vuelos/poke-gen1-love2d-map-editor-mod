@@ -131,6 +131,23 @@ function Palette.move(screen, key)
   return true
 end
 
+-- Moves the palette cursor `amount` rows up the active list (negative = up),
+-- scaling by the active grid's column count (3 for blocks, 4 for sprites).
+-- It clamps to the list, re-derives the cursor cell from the new index, and
+-- scrolls it into view.
+function Palette.jump(screen, amount)
+  Palette.ensureCursor(screen)
+  local list = Palette.list(screen)
+  if #list == 0 then return true end
+  local cols = Palette.cols(screen)
+  local idx = (screen.paletteCursorY - 1) * cols + screen.paletteCursorX
+  idx = math.max(1, math.min(#list, idx + amount * cols))
+  screen.paletteCursorY = math.floor((idx - 1) / cols) + 1
+  screen.paletteCursorX = (idx - 1) % cols + 1
+  Palette.scrollToCursor(screen)
+  return true
+end
+
 -- Selects the item under the palette cursor.
 function Palette.select(screen)
   Palette.ensureCursor(screen)

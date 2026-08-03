@@ -35,6 +35,26 @@ function Camera.clampScroll(self)
   local maxScrollY = math.max(minScrollY, maxY - viewH + CELL_PX * 16)
   self.scrollX = math.max(minScrollX, math.min(self.scrollX, maxScrollX))
   self.scrollY = math.max(minScrollY, math.min(self.scrollY, maxScrollY))
+
+  -- While dragging a connection silhouette the cursor sits on the far side
+  -- of the 64px strip, so plain cursor-following shoves the whole edited map
+  -- off the opposite edge.  Clamp per direction instead: when the map is
+  -- smaller than the viewport the whole map (plus the strip) stays visible,
+  -- and when it is larger the map body fills the viewport with the seam
+  -- pinned to its edge.
+  if self.entityMoving and self.entityMovingKind == "connection" and self._selectedDir then
+    local strip = Common.BLOCK_PX * 2
+    local dir = self._selectedDir
+    if dir == "east" then
+      self.scrollX = math.max(self.mapW - viewW, math.min(self.scrollX, self.mapW + strip - viewW))
+    elseif dir == "west" then
+      self.scrollX = math.max(-strip, math.min(self.scrollX, 0))
+    elseif dir == "south" then
+      self.scrollY = math.max(self.mapH - viewH, math.min(self.scrollY, self.mapH + strip - viewH))
+    elseif dir == "north" then
+      self.scrollY = math.max(-strip, math.min(self.scrollY, 0))
+    end
+  end
 end
 
 function Camera.zoomScale()

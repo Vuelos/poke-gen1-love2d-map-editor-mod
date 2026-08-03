@@ -62,6 +62,7 @@ cursor coordinates) means the map has unsaved changes.
 |------|--------|
 | `Tab` | Give/remove input focus from the palette panel. |
 | `Arrows` / `WASD` | Move the palette cursor (yellow box, same size as the red selection box). |
+| `Q` / `E` | Jump the palette cursor **10 rows** up/down (scaled by the grid: 3 columns for blocks, 4 for sprites). |
 | `Enter` / `Space` | Select the item under the palette cursor. |
 | `Esc` | Remove palette focus. |
 | `G` / `H` | Grid / help toggles still work. |
@@ -90,6 +91,51 @@ Editable per type:
   Item, Class, Party index, Movement, Range, Text, Delete.
 * **Sign** — Move, Text, Delete.
 * **Connection** — Move (offset), Map, Delete.
+
+### Connections
+
+Adding a connection (create picker → *Connection* → direction) asks where it
+should point:
+
+* **Existing map** — pick from the current maps.
+* **Create new map** — opens the new-map dialog with the direction already
+  locked in; enter a width/height and confirm. A brand-new map is created next
+  to the current one (unique `_EXT` id, filled with the current border block)
+  and the connection is pointed at it, ready to be positioned.
+
+The new-map dialog runs in two steps: it first asks for a name (pre-filled
+with a fresh unique default like `NEW_MAP`, `NEW_MAP_2`, …), then edits the
+dimensions.  Duplicate map names are rejected (the input reopens), Escape
+cancels, and entity names are checked for uniqueness within a map when
+edited.  The name input arms `love.keyboard.setTextInput` while it is open so
+typed characters actually reach the text field (and restores it on close);
+the first keystroke replaces the prefilled default instead of appending to it,
+so typing a custom name never leaves `NEW_MAP` glued to the front.  `Enter`
+confirms, `Escape` cancels, `Backspace` edits, and the gamepad confirms with
+`A` and cancels with `B`.  Digits typed into the field are plain text -- the
+editor's `1`/`2`/`3` mode-switch keys are suppressed while the input is on
+top, so a name like `CAVE2` types and confirms normally.  On the dimensions
+step the keys are direct: `A`/`Left` shrink
+width, `D`/`Right` grow width, `W`/`Up` grow height, `S`/`Down` shrink
+height, and `Q`/`E` adjust the active numeric field by **±10**.  `Tab` moves
+between W/H/Dir, and while `Dir` is active `Left`/`Right` cycle the
+direction.  The gamepad mirrors these on the dimensions step too (`D-pad`,
+`A` = confirm, `B` = cancel).  Connection silhouettes and their clickable
+strips span the edited map's full edge (full width for N/S, full height for
+W/E).
+
+You can also repoint an existing connection: edit it → *Map* → **New map...**.
+While a connection is being moved/positioned the camera keeps the edited map on
+screen instead of chasing the silhouette off the opposite edge.
+
+When a new map is a connection's destination, the editor checks where its body
+would land in the world layout before creating anything:
+
+* If it would **overlap** an existing map, the creation is rejected with an OK
+  alert (and a brand-new connection added for the occasion is dropped again).
+* If it lands **flush** (zero gap) against another map, that map gets a
+  reciprocal connection pointing back at it automatically, with matching
+  offsets, so the seam is traversable both ways.
 
 ## ENC mode — encounters
 
@@ -142,7 +188,13 @@ patches them at mod load:
 
 ### Running the tests
 
+The suites export their test lists to the shared runner; run everything from
+the repo root:
+
 ```
-luajit mods/map_editor/tests/map_editor_tests.lua
-luajit mods/map_editor/tests/editor_screen_tests.lua
+luajit mods/map_editor/tests/test_all.lua
 ```
+
+Each suite can also be run on its own (as a module definition) for a quick
+smoke check of a single file by loading it first, but `test_all.lua` is the
+canonical entry point.

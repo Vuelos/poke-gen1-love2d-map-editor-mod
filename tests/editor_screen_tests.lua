@@ -218,19 +218,16 @@ function test_keyBehavior()
   print("key behavior test passed")
 end
 
-function test_all()
-  test_snapshotCapture()
-  test_storeOriginal()
-  test_mapPaletteColors()
-  test_cleanupTextInjection()
-  test_persistenceSessionMaps()
-  test_mapUnderCursor()
-  test_keyBehavior()
-
-  print("\n=== ALL TESTS PASSED ===")
-end
-
-if not pcall(test_all) then
-  print("\n=== SOME TESTS FAILED ===")
-  os.exit(1)
-end
+-- Each suite exports { name, tests } and is run by test_all.lua.
+return {
+  name = "EDITOR_SCREEN",
+  tests = {
+    "test_snapshotCapture",
+    "test_storeOriginal",
+    "test_mapPaletteColors",
+    "test_cleanupTextInjection",
+    "test_persistenceSessionMaps",
+    "test_mapUnderCursor",
+    "test_keyBehavior",
+  },
+}

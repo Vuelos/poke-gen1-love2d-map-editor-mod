@@ -164,7 +164,7 @@ end
 
 -- Draws all map connections as green semi-transparent silhouettes at their
 -- correct map-edge positions.  Each connection is labelled with its direction
--- and target map.  The silhouette spans the full strip width/height (map
+-- and target map name.  The silhouette spans the map's full edge (map
 -- width for N/S, map height for W/E) and is 2 blocks deep.
 function Drawing.drawConnectionSilhouettes(screen)
   local conns = screen.def.connections or {}
@@ -182,23 +182,23 @@ function Drawing.drawConnectionSilhouettes(screen)
     local rx, ry, rw, rh
 
     if dir == "north" then
-      rw = destDef and destDef.width * 32 or mw
+      rw = mw
       rh = 64
       rx = off
       ry = -rh
     elseif dir == "south" then
-      rw = destDef and destDef.width * 32 or mw
+      rw = mw
       rh = 64
       rx = off
       ry = mh
     elseif dir == "west" then
       rw = 64
-      rh = destDef and destDef.height * 32 or mh
+      rh = mh
       rx = -rw
       ry = off
     elseif dir == "east" then
       rw = 64
-      rh = destDef and destDef.height * 32 or mh
+      rh = mh
       rx = mw
       ry = off
     end
@@ -211,7 +211,7 @@ function Drawing.drawConnectionSilhouettes(screen)
     love.graphics.setColor(0.2, 1, 0.4, 0.8)
     love.graphics.rectangle("line", dx, dy, rw, rh)
     love.graphics.setColor(1, 1, 1, 1)
-    screen.font.draw(dir:upper() .. " " .. (conn.map or ""), dx + 2, dy + 2)
+    screen.font.draw(dir:upper() .. " " .. (destDef and destDef.name or conn.map or ""), dx + 2, dy + 2)
 
     if screen._selectedDir == dir then
       love.graphics.setColor(1, 1, 0, 0.9)

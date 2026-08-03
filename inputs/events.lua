@@ -4,10 +4,10 @@
 
 local Common = require("mods.map_editor.func.common")
 local EntityEditor = require("mods.map_editor.scene.entity_editor")
-local InputMove = require("mods.map_editor.func.input_move")
-local InputNewMap = require("mods.map_editor.func.input_newmap")
-local InputPicker = require("mods.map_editor.func.input_picker")
-local InputHelpers = require("mods.map_editor.func.input_helpers")
+local InputMove = require("mods.map_editor.inputs.input_move")
+local InputNewMap = require("mods.map_editor.inputs.input_newmap")
+local InputPicker = require("mods.map_editor.inputs.input_picker")
+local InputHelpers = require("mods.map_editor.inputs.input_helpers")
 local Palette = require("mods.map_editor.scene.palette")
 local MODES = Common.MODES
 
@@ -35,11 +35,16 @@ function Events.onKeyPressed(self, key)
     Palette.toggleFocus(self)
   elseif self.paletteFocus and not (self._newMapState and self._newMapState.editField) then
     -- Palette has focus: WASD/arrows move the palette cursor, Enter/Space
-    -- select the item under it, and Q/E never move the palette cursor.
+    -- select the item under it, and Q/E jump the cursor 10 items at a time
+    -- (blocks and sprites alike).
     if Palette.move(self, key) then
       -- cursor moved
     elseif key == "return" or key == "space" then
       Palette.select(self)
+    elseif key == "q" then
+      Palette.jump(self, -10)
+    elseif key == "e" then
+      Palette.jump(self, 10)
     elseif key == "g" then self.showGrid = not self.showGrid
     elseif key == "h" then self.showHelp = not self.showHelp
     elseif key == "1" then
