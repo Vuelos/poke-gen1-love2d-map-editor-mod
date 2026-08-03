@@ -52,12 +52,15 @@ local function editSlot(screen, groupKey, slotIdx)
   screen.game.stack:push(menu)
 end
 
--- Builds an onLeft/onRight pair that applies a +1/-1 delta and re-labels
--- the row in place.  `apply` returns false (and nothing changes) at a clamp.
+-- Builds an onLeft/onRight/onPageUp/onPageDown pair that applies
+-- a delta and re-labels the row in place.  `apply` returns false
+-- (and nothing changes) at a clamp.
 local function adjust(labelFn, apply)
   return {
     onLeft = function(item) if apply(-1) then item.label = labelFn() end end,
     onRight = function(item) if apply(1) then item.label = labelFn() end end,
+    onPageUp = function(item) if apply(-10) then item.label = labelFn() end end,
+    onPageDown = function(item) if apply(10) then item.label = labelFn() end end,
   }
 end
 
@@ -83,7 +86,7 @@ function EncounterEditor.edit(screen)
     local row = { label = labelFn(), group = group, field = "rate" }
     local edits = adjust(labelFn, function(d)
       local current = enc[group].rate
-      local v = math.max(0, math.min(current + d, 255))
+      local v = math.max(0, math.min(current + d, 100))
       if v == current then return false end
       enc[group].rate = v
       screen.mapChanged = true
@@ -97,7 +100,7 @@ function EncounterEditor.edit(screen)
     local labelFn = function() return ("  %d: %s L%d"):format(i, slot.species, slot.level) end
     local row = { label = labelFn(), group = group, slot = i }
     local edits = adjust(labelFn, function(d)
-      local v = math.max(1, slot.level + d)
+      local v = math.max(1, math.min(slot.level + d, 100))
       if v == slot.level then return false end
       slot.level = v
       screen.mapChanged = true

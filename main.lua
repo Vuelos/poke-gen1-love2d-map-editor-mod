@@ -5,6 +5,7 @@
 
 local SCREEN = "MapEditor"
 local Save = require("mods.map_editor.func.save")
+require("mods.map_editor.func.patch_core")()
 
 -- Walks the game state stack and save data to determine the current
 -- overworld map ID.  Returns nil if no map can be identified.
