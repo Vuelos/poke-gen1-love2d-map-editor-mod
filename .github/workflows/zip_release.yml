@@ -1,9 +1,16 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version"
+        required: true
+        default: "v0.0.1"
+
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
