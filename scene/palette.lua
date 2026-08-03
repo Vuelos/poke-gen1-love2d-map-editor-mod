@@ -8,10 +8,6 @@ local MODES = Common.MODES
 
 local Palette = {}
 
--- Column counts: blocks use 3 columns, sprites use 4.
-local BLOCK_COLS = 3
-local SPRITE_COLS = 4
-
 -- The active list depends on mode: sprite ids in ENT mode, block ids
 -- otherwise.
 function Palette.list(screen)
@@ -20,7 +16,7 @@ function Palette.list(screen)
 end
 
 function Palette.cols(screen)
-  return screen.mode == MODES.ENT and SPRITE_COLS or BLOCK_COLS
+  return screen.mode == MODES.ENT and Common.PAL_SPRITE_COLS or Common.PAL_COLS
 end
 
 -- Rows of palette cells that fit in the current UI height.

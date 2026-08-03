@@ -9,8 +9,6 @@ local MODES = Common.MODES
 local TILE_PX = 8
 local BLOCK_SIZE = 32
 local BLOCK_GAP = 4
-local BLOCK_COLS = 3
-local SPRITE_COLS = 4
 local SPRITE_CELL = 26
 local SPRITE_ROW = 24
 
@@ -31,8 +29,9 @@ end
 
 -- Cursor box for the palette focus.  localIdx is the 1-based index of the
 -- cursor within the visible page; cols/cellW/cellH are the grid layout
--- (pitch dimensions), so the box sits exactly on the highlighted cell.
-local function drawFocusCursor(screen, panelX, localIdx, cols, cellW, cellH)
+-- (pitch dimensions) and boxW/boxH are the selection-box size, so the
+-- cursor box matches the red selected-block box exactly.
+local function drawFocusCursor(screen, panelX, localIdx, cols, cellW, cellH, boxW, boxH)
   if not screen.paletteFocus then return end
   if not localIdx or localIdx < 1 then return end
   local row = math.floor((localIdx - 1) / cols)
@@ -40,9 +39,9 @@ local function drawFocusCursor(screen, panelX, localIdx, cols, cellW, cellH)
   local px = panelX + 4 + col * cellW
   local py = 10 + row * cellH
   love.graphics.setColor(1, 1, 0, 0.4)
-  love.graphics.rectangle("fill", px, py, cellW, cellH)
+  love.graphics.rectangle("fill", px - 1, py - 1, boxW, boxH)
   love.graphics.setColor(1, 1, 0, 0.9)
-  love.graphics.rectangle("line", px, py, cellW, cellH)
+  love.graphics.rectangle("line", px - 1, py - 1, boxW, boxH)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -66,7 +65,7 @@ function PaletteRenderer.drawBlocks(screen, panelX)
   local vw, vh = viewSize()
   drawBackdrop(panelX, vw, vh)
 
-  local cols = BLOCK_COLS
+  local cols = Common.PAL_COLS
   local rowPitch = BLOCK_SIZE + 8
   local visible = math.max(1, math.floor((vh - 18) / rowPitch))
   local perPage = visible * cols
@@ -115,14 +114,12 @@ function PaletteRenderer.drawBlocks(screen, panelX)
         love.graphics.setColor(1, 0, 0, 0.6)
         love.graphics.rectangle("line", px - 1, py - 1, BLOCK_SIZE + 2, BLOCK_SIZE + 2)
       end
-      love.graphics.setColor(0.8, 0.8, 0.8, 1)
-      screen.font.draw(tostring(blockId), px, py + BLOCK_SIZE)
       love.graphics.setColor(1, 1, 1, 1)
     end
   end
 
   drawFocusCursor(screen, panelX, cursorLocalIndex(screen, cols, perPage),
-    cols, BLOCK_SIZE + BLOCK_GAP, rowPitch)
+    cols, BLOCK_SIZE + BLOCK_GAP, rowPitch, BLOCK_SIZE + 2, BLOCK_SIZE + 2)
 end
 
 -- Draws the sprite palette in a 4-column grid.
@@ -133,7 +130,7 @@ function PaletteRenderer.drawSprites(screen, panelX)
   local vw, vh = viewSize()
   drawBackdrop(panelX, vw, vh)
 
-  local cols = SPRITE_COLS
+  local cols = Common.PAL_SPRITE_COLS
   local rowPitch = SPRITE_ROW
   local rows = math.max(2, math.floor((vh - 18) / rowPitch))
   local perPage = rows * cols
@@ -190,7 +187,7 @@ function PaletteRenderer.drawSprites(screen, panelX)
   end
 
   drawFocusCursor(screen, panelX, cursorLocalIndex(screen, cols, perPage),
-    cols, SPRITE_CELL, SPRITE_ROW)
+    cols, SPRITE_CELL, SPRITE_ROW, 18, 18)
 end
 
 -- Draws the appropriate palette for the current mode.

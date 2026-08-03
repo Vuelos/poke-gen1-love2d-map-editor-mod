@@ -20,8 +20,7 @@ function TextInput.new(game, opts)
     maxLen = opts.maxLen or 32,
     text = opts.initial or "",
     onDone = opts.onDone,
-    font = require("src.render.Font"),
-    whiteBg = opts.whiteBg,
+    font = require("src.render.Font")
   }
   setmetatable(self, { __index = TextInput })
 

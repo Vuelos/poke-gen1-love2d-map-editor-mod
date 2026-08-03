@@ -81,7 +81,6 @@ function TextChooser.new(game, def, opts)
         menu.game.stack:push(TextInput.new(menu.game, {
           title = "Enter message text",
           maxLen = 64,
-          whiteBg = true,
           onDone = function(text)
             if text and #text > 0 then
               local n = #(def.textDefs or {}) + 1
