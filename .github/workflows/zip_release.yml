@@ -4,13 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version"
+        description: "Version (e.g. v1.0.0)"
         required: true
-        default: "v0.0.1"
-
-  push:
-    tags:
-      - "v*"
+        type: string
 
 permissions:
   contents: write
@@ -21,15 +17,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag "${{ inputs.version }}"
+          git push origin "${{ inputs.version }}"
 
       - name: Create ZIP
         run: |
-          VERSION=${GITHUB_REF_NAME}
-          zip -r "project-${VERSION}.zip" . \
+          zip -r "project-${{ inputs.version }}.zip" . \
             -x ".git/*" \
             -x ".github/*"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: project-${{ github.ref_name }}.zip
+          tag_name: ${{ inputs.version }}
+          name: Release ${{ inputs.version }}
+          files: project-${{ inputs.version }}.zip
