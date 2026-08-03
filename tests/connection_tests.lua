@@ -755,6 +755,250 @@ function test_inputNewMapGamepadMapping()
   print("New-map gamepad mapping test passed")
 end
 
+-- When a connection points to an existing map, the reciprocal
+-- connection is added to the other map automatically.
+function test_newConnectionToExistingMapAddsReciprocal()
+  print("Testing new connection to existing map adds reciprocal...")
+  local stack = makeStack()
+  local data = {
+    maps = {
+      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9, borderBlock = 5,
+                       tileset = "tileset_overworld", palette = "pal_red",
+                       blocks = {}, warps = {}, objects = {}, signs = {},
+                       connections = {} },
+      ROUTE_1 = { id = "ROUTE_1", width = 10, height = 9, borderBlock = 5,
+                   tileset = "tileset_overworld", palette = "pal_green",
+                   blocks = {}, warps = {}, objects = {}, signs = {},
+                   connections = {} },
+    },
+  }
+  local screen = probeScreen(stack, data, "PALLET_TOWN")
+  screen.mapId = "PALLET_TOWN"
+
+  local EntityEditor = require("mods.map_editor.scene.entity_editor")
+  EntityEditor.showConnectionDirPicker(screen, nil)
+  local picker = stack:top()
+  picker.onChoose({ value = "east" })
+
+  local dest = stack:top()
+  dest.onChoose({ value = "existing" })
+
+  local mapPicker = stack:top()
+  mapPicker.onChoose({ value = "ROUTE_1" })
+
+  local pallettownDef = data.maps.PALLET_TOWN
+  local route1Def = data.maps.ROUTE_1
+
+  local conn = pallettownDef.connections and pallettownDef.connections.east
+  if not conn then error("PALLET_TOWN should have an east connection") end
+  if conn.map ~= "ROUTE_1" then error("east connection should point to ROUTE_1") end
+
+  local recip = route1Def.connections and route1Def.connections.west
+  if not recip then error("ROUTE_1 should have a west reciprocal connection") end
+  if recip.map ~= "PALLET_TOWN" then error("west reciprocal should point to PALLET_TOWN") end
+  if recip.offset ~= 0 then error("reciprocal offset should be 0, got " .. recip.offset) end
+
+  print("New connection to existing map adds reciprocal test passed")
+end
+
+-- When a connection's destination is changed, the old reciprocal
+-- is removed and a new one is added to the new target map.
+function test_changeConnectionDestinationUpdatesReciprocal()
+  print("Testing change connection destination updates reciprocal...")
+  local stack = makeStack()
+  local data = {
+    maps = {
+      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9, borderBlock = 5,
+                       tileset = "tileset_overworld", palette = "pal_red",
+                       blocks = {}, warps = {}, objects = {}, signs = {},
+                       connections = { east = { map = "ROUTE_1", offset = 0 } } },
+      ROUTE_1 = { id = "ROUTE_1", width = 10, height = 9, borderBlock = 5,
+                   tileset = "tileset_overworld", palette = "pal_green",
+                   blocks = {}, warps = {}, objects = {}, signs = {},
+                   connections = { west = { map = "PALLET_TOWN", offset = 0 } } },
+      ROUTE_2 = { id = "ROUTE_2", width = 10, height = 9, borderBlock = 5,
+                   tileset = "tileset_overworld", palette = "pal_green",
+                   blocks = {}, warps = {}, objects = {}, signs = {},
+                   connections = {} },
+    },
+  }
+  local screen = probeScreen(stack, data, "PALLET_TOWN")
+  screen.mapId = "PALLET_TOWN"
+
+  local EntityEditor = require("mods.map_editor.scene.entity_editor")
+  local conn = data.maps.PALLET_TOWN.connections.east
+  EntityEditor.editField(screen, "connection", conn, "map")
+
+  local mapPicker = stack:top()
+  mapPicker.onChoose({ value = "ROUTE_2" })
+
+  -- PALLET_TOWN's east connection should now point to ROUTE_2
+  local palConn = data.maps.PALLET_TOWN.connections.east
+  if palConn.map ~= "ROUTE_2" then error("PALLET_TOWN east should point to ROUTE_2") end
+
+  -- ROUTE_1 should no longer have a west reciprocal to PALLET_TOWN
+  local route1West = data.maps.ROUTE_1.connections and data.maps.ROUTE_1.connections.west
+  if route1West then error("ROUTE_1 should no longer have west reciprocal") end
+
+  -- ROUTE_2 should now have a west reciprocal to PALLET_TOWN
+  local route2West = data.maps.ROUTE_2.connections and data.maps.ROUTE_2.connections.west
+  if not route2West then error("ROUTE_2 should have west reciprocal") end
+  if route2West.map ~= "PALLET_TOWN" then error("ROUTE_2 west should point to PALLET_TOWN") end
+
+  print("Change connection destination updates reciprocal test passed")
+end
+
+-- Overlap conflict: when the other map already has a connection
+-- in the reciprocal direction pointing to a different map, the
+-- new connection should be rejected.
+function test_newConnectionOverlapConflictRejected()
+  print("Testing new connection overlap conflict rejected...")
+  local stack = makeStack()
+  local data = {
+    maps = {
+      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9, borderBlock = 5,
+                       tileset = "tileset_overworld", palette = "pal_red",
+                       blocks = {}, warps = {}, objects = {}, signs = {},
+                       connections = {} },
+      ROUTE_1 = { id = "ROUTE_1", width = 10, height = 9, borderBlock = 5,
+                   tileset = "tileset_overworld", palette = "pal_green",
+                   blocks = {}, warps = {}, objects = {}, signs = {},
+                   connections = { west = { map = "VERMILION_CITY", offset = 0 } } },
+      VERMILION_CITY = { id = "VERMILION_CITY", width = 10, height = 9, borderBlock = 5,
+                          tileset = "tileset_overworld", palette = "pal_red",
+                          blocks = {}, warps = {}, objects = {}, signs = {},
+                          connections = {} },
+    },
+  }
+  local screen = probeScreen(stack, data, "PALLET_TOWN")
+  screen.mapId = "PALLET_TOWN"
+
+  local EntityEditor = require("mods.map_editor.scene.entity_editor")
+  EntityEditor.showConnectionDirPicker(screen, nil)
+  local picker = stack:top()
+  picker.onChoose({ value = "east" })
+
+  local dest = stack:top()
+  dest.onChoose({ value = "existing" })
+
+  local mapPicker = stack:top()
+  mapPicker.onChoose({ value = "ROUTE_1" })
+
+  -- The connection should NOT have been created because ROUTE_1
+  -- already has a west connection to VERMILION_CITY.
+  local palConn = data.maps.PALLET_TOWN.connections.east
+  if palConn then error("PALLET_TOWN east connection should not exist after conflict") end
+
+  -- ROUTE_1's west connection should be unchanged
+  local route1West = data.maps.ROUTE_1.connections.west
+  if not route1West then error("ROUTE_1 west should still exist") end
+  if route1West.map ~= "VERMILION_CITY" then error("ROUTE_1 west should still point to VERMILION_CITY") end
+
+  print("New connection overlap conflict rejected test passed")
+end
+
+-- Deleting a connection removes the reciprocal on the other map.
+function test_deleteConnectionRemovesReciprocal()
+  print("Testing delete connection removes reciprocal...")
+  local stack = makeStack()
+  local data = {
+    maps = {
+      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9, borderBlock = 5,
+                       tileset = "tileset_overworld", palette = "pal_red",
+                       blocks = {}, warps = {}, objects = {}, signs = {},
+                       connections = { east = { map = "ROUTE_1", offset = 0 } } },
+      ROUTE_1 = { id = "ROUTE_1", width = 10, height = 9, borderBlock = 5,
+                   tileset = "tileset_overworld", palette = "pal_green",
+                   blocks = {}, warps = {}, objects = {}, signs = {},
+                   connections = { west = { map = "PALLET_TOWN", offset = 0 } } },
+    },
+  }
+  local screen = probeScreen(stack, data, "PALLET_TOWN")
+  screen.mapId = "PALLET_TOWN"
+
+  local EntityEditor = require("mods.map_editor.scene.entity_editor")
+  local conn = data.maps.PALLET_TOWN.connections.east
+  EntityEditor.removeEntity(screen, "connection", conn)
+
+  -- PALLET_TOWN's east connection should be gone
+  if data.maps.PALLET_TOWN.connections.east then error("PALLET_TOWN east should be removed") end
+
+  -- ROUTE_1's west reciprocal should also be gone
+  if data.maps.ROUTE_1.connections.west then error("ROUTE_1 west reciprocal should be removed") end
+
+  print("Delete connection removes reciprocal test passed")
+end
+
+-- Changing a connection's direction updates reciprocals on both maps.
+function test_changeConnectionDirectionUpdatesReciprocal()
+  print("Testing change connection direction updates reciprocal...")
+  local stack = makeStack()
+  local data = {
+    maps = {
+      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9, borderBlock = 5,
+                       tileset = "tileset_overworld", palette = "pal_red",
+                       blocks = {}, warps = {}, objects = {}, signs = {},
+                       connections = { east = { map = "ROUTE_1", offset = 0 } } },
+      ROUTE_1 = { id = "ROUTE_1", width = 10, height = 9, borderBlock = 5,
+                   tileset = "tileset_overworld", palette = "pal_green",
+                   blocks = {}, warps = {}, objects = {}, signs = {},
+                   connections = { west = { map = "PALLET_TOWN", offset = 0 } } },
+    },
+  }
+  local screen = probeScreen(stack, data, "PALLET_TOWN")
+  screen.mapId = "PALLET_TOWN"
+  screen._selectedDir = "east"
+
+  local EntityEditor = require("mods.map_editor.scene.entity_editor")
+  local conn = data.maps.PALLET_TOWN.connections.east
+  EntityEditor.showConnectionDirPicker(screen, conn)
+
+  local dirPicker = stack:top()
+  dirPicker.onChoose({ value = "south" })
+
+  -- PALLET_TOWN should now have a south connection instead of east
+  if data.maps.PALLET_TOWN.connections.east then error("PALLET_TOWN east should be removed") end
+  if not data.maps.PALLET_TOWN.connections.south then error("PALLET_TOWN should have south connection") end
+
+  -- ROUTE_1 should no longer have a west reciprocal
+  if data.maps.ROUTE_1.connections.west then error("ROUTE_1 west should be removed") end
+
+  print("Change connection direction updates reciprocal test passed")
+end
+
+function test_newMapHasDefaultEncounters()
+  print("Testing new map gets default encounter table...")
+  local stack = makeStack()
+  local data = {
+    maps = {
+      PALLET_TOWN = { id = "PALLET_TOWN", width = 10, height = 9, borderBlock = 5,
+                        tileset = "tileset_overworld", palette = "pal_red",
+                        blocks = {}, warps = {}, objects = {}, signs = {},
+                        connections = {} },
+    },
+  }
+  local screen = probeScreen(stack, data, "PALLET_TOWN")
+  screen.mapId = "PALLET_TOWN"
+
+  screen._pendingConn = { conn = { map = "PALLET_TOWN", offset = 0 }, dir = "north", move = false }
+  screen:newMapDialog("north")
+  stack:top().onDone("NEW_MAP")
+  screen._newMapState.width = 5
+  screen._newMapState.height = 5
+  screen:_newMapConfirm()
+
+  local newId = "PALLET_TOWN_EXT"
+  local newDef = data.maps[newId]
+  if not newDef then error("new map should be created") end
+  if not newDef.encounters then error("new map should have encounters table") end
+  if newDef.encounters.grass.rate ~= 0 then error("default grass rate should be 0") end
+  if newDef.encounters.water.rate ~= 0 then error("default water rate should be 0") end
+  if newDef.encounters.indoor.rate ~= 0 then error("default indoor rate should be 0") end
+  if #newDef.encounters.grass.slots ~= 0 then error("default grass slots should be empty") end
+
+  print("New map default encounters test passed")
+end
+
 -- Each suite exports { name, teardown, tests } and is run by test_all.lua.
 return {
   name = "CONNECTION",
@@ -783,5 +1027,11 @@ return {
     "test_textInputDigitsAreText",
     "test_textInputExternalPopCancels",
     "test_inputNewMapGamepadMapping",
+    "test_newConnectionToExistingMapAddsReciprocal",
+    "test_changeConnectionDestinationUpdatesReciprocal",
+    "test_newConnectionOverlapConflictRejected",
+    "test_deleteConnectionRemovesReciprocal",
+    "test_changeConnectionDirectionUpdatesReciprocal",
+    "test_newMapHasDefaultEncounters",
   },
 }

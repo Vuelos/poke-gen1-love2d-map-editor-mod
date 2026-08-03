@@ -74,11 +74,18 @@ function NewMap.createNewMap(self, width, height, name)
   if NewMap.isMapNameUsed(data, newName, newId) then
     newName = NewMap.uniqueMapName(data, newName)
   end
+  local maxIndex = 0
+  for id, def in pairs(data.maps or {}) do
+    if def.index and def.index > maxIndex then maxIndex = def.index end
+  end
+  local newIndex = maxIndex + 1
   data.maps[newId] = {
     id = newId, name = newName, width = width, height = height,
     blocks = blocks, borderBlock = border,
     warps = {}, objects = {}, signs = {},
     tileset = self.def.tileset, palette = self.def.palette,
+    index = newIndex, label = newId,
+    encounters = { grass = { rate = 0, slots = {} }, water = { rate = 0, slots = {} }, indoor = { rate = 0, slots = {} } },
   }
   return newId
 end
@@ -174,8 +181,17 @@ function NewMap._newMapConfirm(self)
     newDef.connections = newDef.connections or {}
     newDef.connections[flush.side] = { map = flush.id, offset = flush.offset }
     if otherDef then
+      local recipDir = RECIP[flush.side]
+      local existing = otherDef.connections and otherDef.connections[recipDir]
+      if existing and existing.map ~= newId then
+        newDef.connections[flush.side] = nil
+        self._pendingConn = nil
+        self._newMapState = nil
+        NewMap.showMessage(self, "Flush connection conflicts with existing connection on the other map")
+        return
+      end
       otherDef.connections = otherDef.connections or {}
-      otherDef.connections[RECIP[flush.side]] = { map = newId, offset = -flush.offset }
+      otherDef.connections[recipDir] = { map = newId, offset = -flush.offset }
     end
     self.mod.log:info("Auto-connected new map %s to %s (%s)", newId, flush.id, flush.side)
   end
@@ -190,6 +206,9 @@ function NewMap._newMapConfirm(self)
     self._selectedDir = pending.dir
     self._newMapState = nil
     self.mapChanged = true
+    local newDef = self.data.maps[newId]
+    newDef.connections = newDef.connections or {}
+    newDef.connections[RECIP[pending.dir]] = { map = self.mapId, offset = 0 }
     local EntityEditor = require("mods.map_editor.scene.entity_editor")
     if pending.move then
       EntityEditor.startMoving(self, "connection", pending.conn)

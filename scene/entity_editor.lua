@@ -4,6 +4,8 @@ local MODES = Common.MODES
 
 local EntityEditor = {}
 
+local RECIP = { north = "south", south = "north", east = "west", west = "east" }
+
 local function resolveText(data, mapId, textConst)
   if not data or not data.text_pointers or not data.text then return textConst end
   local pointers = data.text_pointers[mapId]
@@ -31,6 +33,47 @@ local function objectType(ent)
   if ent.trainerClass then return "trainer"
   elseif ent.item then return "item"
   else return "npc" end
+end
+
+-- Adds or updates the reciprocal connection on the other map.
+-- Returns true on success, false if the other map already has a
+-- connection in the reciprocal direction pointing to a different map.
+function EntityEditor.updateReciprocalConnection(screen, conn, dir)
+  local otherMapId = conn.map
+  if not otherMapId then return true end
+  local otherDef = screen.data.maps[otherMapId]
+  if not otherDef then return true end
+  local recipDir = RECIP[dir]
+  if not recipDir then return true end
+  local myMapId = screen.mapId
+
+  local existing = otherDef.connections and otherDef.connections[recipDir]
+  if existing then
+    if existing.map == myMapId then
+      existing.offset = conn.offset or 0
+    else
+      return false
+    end
+  else
+    otherDef.connections = otherDef.connections or {}
+    otherDef.connections[recipDir] = { map = myMapId, offset = conn.offset or 0 }
+  end
+  return true
+end
+
+-- Removes the reciprocal connection from the other map when a
+-- connection's destination is changed or the connection is deleted.
+function EntityEditor.removeReciprocalConnection(screen, conn, dir)
+  local otherMapId = conn.map
+  if not otherMapId then return end
+  local otherDef = screen.data.maps[otherMapId]
+  if not otherDef then return end
+  local recipDir = RECIP[dir]
+  if not recipDir then return end
+  local r = otherDef.connections and otherDef.connections[recipDir]
+  if r and r.map == screen.mapId then
+    otherDef.connections[recipDir] = nil
+  end
 end
 
 local function objectItemsList(data)
@@ -325,7 +368,26 @@ function EntityEditor.editField(screen, kind, ent, field)
             return
           end
           if screen.undo then screen.undo:capture(screen.def) end
-          ent.map = c.value; screen.mapChanged = true
+          local oldMapId = ent.map
+          if oldMapId and oldMapId ~= c.value then
+            EntityEditor.removeReciprocalConnection(screen, ent, screen._selectedDir or "east")
+          end
+          ent.map = c.value
+          local ok = EntityEditor.updateReciprocalConnection(screen, ent, screen._selectedDir or "east")
+          if not ok then
+            ent.map = oldMapId
+            if oldMapId then
+              EntityEditor.updateReciprocalConnection(screen, ent, screen._selectedDir or "east")
+            end
+            screen.game.stack:pop()
+            screen.game.stack:push(screen.mod.ui.ListMenu.new(screen.game, "Connection conflict", {
+              { label = "OK", value = "ok" },
+            }, {
+              onChoose = function() screen.game.stack:pop() end,
+            }))
+            return
+          end
+          screen.mapChanged = true
         end,
       })
       screen.game.stack:push(box)
@@ -602,17 +664,31 @@ function EntityEditor.showConnectionDirPicker(screen, existingEnt)
       if not screen.def.connections then screen.def.connections = {} end
       local dir = c.value
       screen._selectedDir = dir
-      if existingEnt then
-        for oldDir, conn in pairs(screen.def.connections) do
-          if conn == existingEnt then
-            if screen.undo then screen.undo:capture(screen.def) end
-            screen.def.connections[oldDir] = nil
-            screen.def.connections[dir] = conn
-            screen.mapChanged = true
-            EntityEditor.editEntity(screen, "connection", conn)
-            return
-          end
-        end
+       if existingEnt then
+         for oldDir, conn in pairs(screen.def.connections) do
+           if conn == existingEnt then
+             if screen.undo then screen.undo:capture(screen.def) end
+             EntityEditor.removeReciprocalConnection(screen, conn, oldDir)
+             screen.def.connections[oldDir] = nil
+             screen.def.connections[dir] = conn
+             local ok = EntityEditor.updateReciprocalConnection(screen, conn, dir)
+             if not ok then
+               screen.def.connections[dir] = nil
+               screen.def.connections[oldDir] = conn
+               EntityEditor.updateReciprocalConnection(screen, conn, oldDir)
+               screen.game.stack:pop()
+               screen.game.stack:push(screen.mod.ui.ListMenu.new(screen.game, "Connection conflict", {
+                 { label = "OK", value = "ok" },
+               }, {
+                 onChoose = function() screen.game.stack:pop() end,
+               }))
+               return
+             end
+             screen.mapChanged = true
+             EntityEditor.editEntity(screen, "connection", conn)
+             return
+           end
+         end
       else
         if screen.def.connections[dir] then
           screen._selectedDir = dir
@@ -664,7 +740,20 @@ function EntityEditor.chooseExistingMap(screen, conn, dir)
     qePage = true,
     onChoose = function(c)
       screen.game.stack:pop()
+      if screen.undo then screen.undo:capture(screen.def) end
       conn.map = c.value
+      local ok = EntityEditor.updateReciprocalConnection(screen, conn, dir)
+      if not ok then
+        conn.map = nil
+        screen.def.connections[dir] = nil
+        screen.game.stack:pop()
+        screen.game.stack:push(screen.mod.ui.ListMenu.new(screen.game, "Connection conflict", {
+          { label = "OK", value = "ok" },
+        }, {
+          onChoose = function() screen.game.stack:pop() end,
+        }))
+        return
+      end
       screen.mapChanged = true
       screen._selectedDir = dir
       EntityEditor.startMoving(screen, "connection", conn)
@@ -679,6 +768,7 @@ function EntityEditor.removeEntity(screen, kind, ent)
     for dir, c in pairs(conns) do
       if c == ent then
         if screen.undo then screen.undo:capture(screen.def) end
+        EntityEditor.removeReciprocalConnection(screen, ent, dir)
         conns[dir] = nil
         screen.mapChanged = true
         return
