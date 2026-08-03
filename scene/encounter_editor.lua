@@ -93,6 +93,7 @@ function EncounterEditor.edit(screen)
       return true
     end)
     row.onLeft, row.onRight = edits.onLeft, edits.onRight
+    row.onPageUp, row.onPageDown = edits.onPageUp, edits.onPageDown
     return row
   end
 
@@ -107,6 +108,7 @@ function EncounterEditor.edit(screen)
       return true
     end)
     row.onLeft, row.onRight = edits.onLeft, edits.onRight
+    row.onPageUp, row.onPageDown = edits.onPageUp, edits.onPageDown
     return row
   end
 

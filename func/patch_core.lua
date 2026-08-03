@@ -4,7 +4,21 @@
 
 local function patchInput()
   local Input = require("src.core.Input")
-  if Input and Input.keyBindings then
+  if not Input then return end
+  -- Mods load before Input:init()/applyBindings(), and applyBindings
+  -- rebuilds keyBindings from the defaults + the player's overlay, which
+  -- would drop the q/e patch set here.  Hook applyBindings so q/e survive
+  -- every rebuild (init, options changes, rebinds).
+  if not rawget(Input, "_mapEditorInputPatched") then
+    local origApply = Input.applyBindings
+    function Input.applyBindings(self, overlay)
+      origApply(self, overlay)
+      self.keyBindings["q"] = "pageUp"
+      self.keyBindings["e"] = "pageDown"
+    end
+    Input._mapEditorInputPatched = true
+  end
+  if Input.keyBindings then
     Input.keyBindings["q"] = "pageUp"
     Input.keyBindings["e"] = "pageDown"
   end

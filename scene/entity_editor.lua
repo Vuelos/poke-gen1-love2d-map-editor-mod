@@ -170,6 +170,7 @@ function EntityEditor.buildItems(screen, kind, ent)
     local items = {
       { label = ("Move (%d,%d)"):format(ent.x, ent.y), value = "move" },
       { label = ("Sprite: Change"), value = "sprite" },
+      { label = ("Name: %s"):format(ent.name or "NONE"), value = "name" },
     }
     if otype == "item" then
       table.insert(items, { label = ("Item: %s"):format(ent.item or "NONE"), value = "item" })
@@ -367,7 +368,22 @@ function EntityEditor.editField(screen, kind, ent, field)
     end,
   })
 
-  screen.game.stack:push(box)
+    screen.game.stack:push(box)
+  elseif field == "name" then
+    local TextInput = require("mods.map_editor.scene.text_input")
+    local input = TextInput.new(screen.game, {
+      title = "Object name",
+      maxLen = 32,
+      initial = ent.name or "",
+      onDone = function(text)
+        if text and text ~= "" then
+          if screen.undo then screen.undo:capture(screen.def) end
+          ent.name = text; screen.mapChanged = true
+          EntityEditor.refreshMenuItems(screen, kind, ent)
+        end
+      end,
+    })
+    screen.game.stack:push(input)
   elseif field == "movement" then
     local box = screen.mod.ui.ListMenu.new(screen.game, "Movement", {
       { label = "STAY", value = "STAY" }, { label = "WALK", value = "WALK" },

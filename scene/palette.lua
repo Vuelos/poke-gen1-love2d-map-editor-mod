@@ -8,9 +8,9 @@ local MODES = Common.MODES
 
 local Palette = {}
 
--- Column counts: blocks use 3 columns, sprites use 2.
+-- Column counts: blocks use 3 columns, sprites use 4.
 local BLOCK_COLS = 3
-local SPRITE_COLS = 2
+local SPRITE_COLS = 4
 
 -- The active list depends on mode: sprite ids in ENT mode, block ids
 -- otherwise.
@@ -25,7 +25,7 @@ end
 
 -- Rows of palette cells that fit in the current UI height.
 function Palette.visibleRows(screen)
-  local vh = require("src.render.Renderer"):uiSize()
+  local _, vh = require("src.render.Renderer"):uiSize()
   if screen.mode == MODES.ENT then
     return math.max(2, math.floor((vh - 18) / 24))
   end
@@ -87,11 +87,13 @@ function Palette.scrollToCursor(screen)
   local perPage = Palette.perPage(screen)
   local idx = (screen.paletteCursorY - 1) * cols + screen.paletteCursorX
   local off = screen.paletteOffset or 0
+  local maxOff = math.max(0, #Palette.list(screen) - perPage)
   if idx <= off then
     screen.paletteOffset = math.max(0, idx - 1)
   elseif idx > off + perPage then
-    screen.paletteOffset = math.max(0, idx - perPage)
+    screen.paletteOffset = math.min(maxOff, math.max(0, idx - perPage))
   end
+  screen.paletteOffset = math.max(0, math.min(screen.paletteOffset, maxOff))
 end
 
 -- Moves the palette cursor with WASD/arrows.  Returns true when the key was

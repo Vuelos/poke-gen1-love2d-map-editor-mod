@@ -1,5 +1,5 @@
 -- Palette renderer: draws the right-hand palette panel for the map editor.
--- Blocks are shown in a 3-column grid in MAP/ENC mode, sprites in a 2-column
+-- Blocks are shown in a 3-column grid in MAP/ENC mode, sprites in a 4-column
 -- grid in ENT mode.  The panel also renders the focus cursor (yellow) used
 -- when the palette has input focus.
 
@@ -10,8 +10,8 @@ local TILE_PX = 8
 local BLOCK_SIZE = 32
 local BLOCK_GAP = 4
 local BLOCK_COLS = 3
-local SPRITE_COLS = 2
-local SPRITE_CELL = 32
+local SPRITE_COLS = 4
+local SPRITE_CELL = 26
 local SPRITE_ROW = 24
 
 local PaletteRenderer = {}
@@ -30,18 +30,19 @@ local function drawBackdrop(panelX, vw, vh)
 end
 
 -- Cursor box for the palette focus.  localIdx is the 1-based index of the
--- cursor within the visible page; cols/rowPitch describe the grid layout.
-local function drawFocusCursor(screen, panelX, localIdx, cols, rowPitch, cellW, cellH)
+-- cursor within the visible page; cols/cellW/cellH are the grid layout
+-- (pitch dimensions), so the box sits exactly on the highlighted cell.
+local function drawFocusCursor(screen, panelX, localIdx, cols, cellW, cellH)
   if not screen.paletteFocus then return end
   if not localIdx or localIdx < 1 then return end
   local row = math.floor((localIdx - 1) / cols)
   local col = (localIdx - 1) % cols
   local px = panelX + 4 + col * cellW
-  local py = 10 + row * rowPitch
+  local py = 10 + row * cellH
   love.graphics.setColor(1, 1, 0, 0.4)
-  love.graphics.rectangle("fill", px - 2, py - 2, cellW + 4, cellH + 4)
+  love.graphics.rectangle("fill", px, py, cellW, cellH)
   love.graphics.setColor(1, 1, 0, 0.9)
-  love.graphics.rectangle("line", px - 2, py - 2, cellW + 4, cellH + 4)
+  love.graphics.rectangle("line", px, py, cellW, cellH)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -75,6 +76,8 @@ function PaletteRenderer.drawBlocks(screen, panelX)
     if list[i] == screen.selectedBlock then selPos = i; break end
   end
   screen.paletteOffset = screen.paletteOffset or 0
+  local maxOff = math.max(0, #list - perPage)
+  screen.paletteOffset = math.max(0, math.min(screen.paletteOffset, maxOff))
   -- Keep the selected block visible, unless the palette focus cursor owns
   -- the scroll position.
   if selPos > 0 and not screen.paletteFocus then
@@ -119,10 +122,10 @@ function PaletteRenderer.drawBlocks(screen, panelX)
   end
 
   drawFocusCursor(screen, panelX, cursorLocalIndex(screen, cols, perPage),
-    cols, rowPitch, BLOCK_SIZE, BLOCK_SIZE + 8)
+    cols, BLOCK_SIZE + BLOCK_GAP, rowPitch)
 end
 
--- Draws the sprite palette in a 2-column grid.
+-- Draws the sprite palette in a 4-column grid.
 function PaletteRenderer.drawSprites(screen, panelX)
   local list = screen.spriteList
   if not list or #list == 0 then return end
@@ -135,6 +138,8 @@ function PaletteRenderer.drawSprites(screen, panelX)
   local rows = math.max(2, math.floor((vh - 18) / rowPitch))
   local perPage = rows * cols
   screen.paletteOffset = screen.paletteOffset or 0
+  local maxOff = math.max(0, #list - perPage)
+  screen.paletteOffset = math.max(0, math.min(screen.paletteOffset, maxOff))
   -- Keep the selected sprite visible, unless the focus cursor owns scroll.
   if not screen.paletteFocus then
     local pageStart = math.floor((sel - 1) / perPage) * perPage
@@ -185,7 +190,7 @@ function PaletteRenderer.drawSprites(screen, panelX)
   end
 
   drawFocusCursor(screen, panelX, cursorLocalIndex(screen, cols, perPage),
-    cols, rowPitch, SPRITE_CELL, SPRITE_ROW)
+    cols, SPRITE_CELL, SPRITE_ROW)
 end
 
 -- Draws the appropriate palette for the current mode.

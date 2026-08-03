@@ -65,7 +65,7 @@ function MapOps.expandMap(self, needL, needR, needT, needB)
   local oldH = self.def.height
   local newW = oldW + needL + needR
   local newH = oldH + needT + needB
-  local border = self.def.borderBlock or 0
+  local fill = self.selectedBlock or self.def.borderBlock
 
   local newBlocks = {}
   for by = 0, newH - 1 do
@@ -76,7 +76,7 @@ function MapOps.expandMap(self, needL, needR, needT, needB)
       if obx >= 0 and obx < oldW and oby >= 0 and oby < oldH then
         newBlocks[idx] = self.def.blocks[oby * oldW + obx + 1]
       else
-        newBlocks[idx] = border
+        newBlocks[idx] = fill
       end
     end
   end

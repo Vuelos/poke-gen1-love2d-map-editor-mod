@@ -6,12 +6,6 @@ Common.MODES = { MAP = 1, ENT = 2, ENC = 3 }
 Common.CELL_PX = 16
 Common.BLOCK_PX = 32
 Common.PAL_W = 112
-Common.PAL_BLOCK_SIZE = 32
-Common.PAL_GAP = 4
-Common.PAL_ROWS = 4
-Common.PAL_COLS = 3
-Common.PAL_SPRITE_COLS = 2
-Common.PAL_VISIBLE = Common.PAL_ROWS * Common.PAL_COLS
 
 function Common.deepCopy(a)
   if type(a) ~= "table" then return a end
